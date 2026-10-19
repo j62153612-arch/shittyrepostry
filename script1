@@ -567,8 +567,8 @@ addLights(entries)
 
 -- wings are complete -> send music, then volume
 task.spawn(function()
-	sendHDAdmin(";music 70520000279740")
-	task.wait(1)
+	sendHDAdmin(";music 97533689100624")
+	task.wait(0.5)
 	sendHDAdmin(";volume inf")
 end)
 
