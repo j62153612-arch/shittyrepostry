@@ -1,0 +1,808 @@
+--[[
+    RAINBOW GLITCHER UI (نسخه‌ی گوشه‌ای - وسط صفحه کاملاً خالی)
+    LocalScript (StarterGui / StarterPlayerScripts) یا اجرا با اجراکننده‌ی اسکریپت
+    کلید RightShift = بستن رابط
+]]
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local OLD = playerGui:FindFirstChild("RainbowGlitcherUI")
+if OLD then OLD:Destroy() end
+
+---------------------------------------------------------------------
+-- تنظیمات
+---------------------------------------------------------------------
+local TITLE = "Rainbow Glitcher"
+local GLITCH_CHARS = {"#", "%", "@", "&", "$", "?", "!", "/", "\\", "0", "1", "▓", "▒", "░", "█", "Ξ", "Ω", "Ψ"}
+
+local TOP_TEXT = "▓▒░ SYSTEM CORRUPTED ░▒▓  //  01001000 01000101 01001100 01010000  //  THE VOID STARES BACK  //  ERROR 0xDEAD  //  DON'T LOOK AWAY  //  ░▒▓ REALITY.EXE HAS STOPPED ▓▒░  //  "
+local BOTTOM_TEXT = "☠ YOU ARE NOT ALONE ☠  //  SIGNAL LOST  //  0xFFFF00 0xFF00FF 0x00FFFF  //  WE SEE YOU  //  MEMORY LEAK DETECTED  //  ▓▒░ NO ESCAPE ░▒▓  //  CONNECTION TERMINATED  //  "
+local CREEPY_SUBS = {
+	"▓▒░ SYSTEM CORRUPTED ░▒▓",
+	"> it is watching <",
+	"[ ERROR: REALITY NOT FOUND ]",
+	"// DON'T BLINK //",
+	"░░ 0xDEADBEEF ░░",
+	"> signal lost... <",
+	"[ THE GLITCH AWAKENS ]",
+}
+local CORNER_TL_SUB = {"> glitch.exe running", "> kernel panic", "> void.link: OPEN", "> entity detected"}
+local CORNER_BL = {"MEM: 0xDEAD", "MEM: 0xBEEF", "MEM: 0xFFFF", "MEM: 0x0000"}
+
+local BAR_HEIGHT = 34
+local MARGIN = 14
+
+---------------------------------------------------------------------
+-- ساخت رابط (هیچ پس‌زمینه‌ای وسط صفحه نیست)
+---------------------------------------------------------------------
+local gui = Instance.new("ScreenGui")
+gui.Name = "RainbowGlitcherUI"
+gui.IgnoreGuiInset = true
+gui.ResetOnSpawn = false
+gui.DisplayOrder = 999
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = playerGui
+
+local root = Instance.new("Frame")
+root.Size = UDim2.fromScale(1, 1)
+root.BackgroundTransparency = 1
+root.BorderSizePixel = 0
+root.Active = false
+root.Parent = gui
+
+local function makeLabel(text, anchor, pos, size, align, font, maxSize, z)
+	local l = Instance.new("TextLabel")
+	l.AnchorPoint = anchor
+	l.Position = pos
+	l.Size = size
+	l.BackgroundTransparency = 1
+	l.Text = text
+	l.Font = font
+	l.TextScaled = true
+	l.TextXAlignment = align
+	l.TextColor3 = Color3.new(1, 1, 1)
+	l.TextTransparency = 1
+	l.ZIndex = z
+	l.Parent = root
+	local c = Instance.new("UITextSizeConstraint")
+	c.MaxTextSize = maxSize
+	c.MinTextSize = 8
+	c.Parent = l
+	return l
+end
+
+-- عنوان اصلی: گوشه‌ی بالا-چپ (زیر نوار بالا)
+local TL_POS = UDim2.new(0, MARGIN, 0, BAR_HEIGHT + 10)
+local TL_ANCHOR = Vector2.new(0, 0)
+local TL_SIZE = UDim2.fromOffset(340, 46)
+
+local ghostR = makeLabel(TITLE, TL_ANCHOR, TL_POS, TL_SIZE, Enum.TextXAlignment.Left, Enum.Font.GothamBlack, 40, 3)
+local ghostC = makeLabel(TITLE, TL_ANCHOR, TL_POS, TL_SIZE, Enum.TextXAlignment.Left, Enum.Font.GothamBlack, 40, 4)
+local title = makeLabel(TITLE, TL_ANCHOR, TL_POS, TL_SIZE, Enum.TextXAlignment.Left, Enum.Font.GothamBlack, 40, 5)
+ghostR.TextColor3 = Color3.fromRGB(255, 0, 40)
+ghostC.TextColor3 = Color3.fromRGB(0, 255, 255)
+
+local stroke = Instance.new("UIStroke")
+stroke.Thickness = 2
+stroke.Parent = title
+
+-- زیرعنوان زیر عنوان (بالا-چپ)
+local tlSub = makeLabel(CORNER_TL_SUB[1], Vector2.new(0, 0),
+	UDim2.new(0, MARGIN + 2, 0, BAR_HEIGHT + 58), UDim2.fromOffset(300, 20),
+	Enum.TextXAlignment.Left, Enum.Font.Code, 16, 5)
+
+-- گوشه‌ی پایین-راست: متن ترسناک
+local brSub = makeLabel(CREEPY_SUBS[1], Vector2.new(1, 1),
+	UDim2.new(1, -MARGIN, 1, -(BAR_HEIGHT + 10)), UDim2.fromOffset(360, 26),
+	Enum.TextXAlignment.Right, Enum.Font.Code, 22, 5)
+
+-- گوشه‌ی بالا-راست: وضعیت
+local trLbl = makeLabel("SYS://GLITCH", Vector2.new(1, 0),
+	UDim2.new(1, -MARGIN, 0, BAR_HEIGHT + 10), UDim2.fromOffset(260, 24),
+	Enum.TextXAlignment.Right, Enum.Font.Code, 20, 5)
+
+-- گوشه‌ی پایین-چپ: شمارنده‌ی حافظه
+local blLbl = makeLabel(CORNER_BL[1], Vector2.new(0, 1),
+	UDim2.new(0, MARGIN, 1, -(BAR_HEIGHT + 10)), UDim2.fromOffset(260, 24),
+	Enum.TextXAlignment.Left, Enum.Font.Code, 20, 5)
+
+-- نوارهای باریک متن بالا و پایین (لبه‌ی صفحه)
+local function makeBar(top)
+	local bar = Instance.new("Frame")
+	bar.AnchorPoint = Vector2.new(0, top and 0 or 1)
+	bar.Position = UDim2.fromScale(0, top and 0 or 1)
+	bar.Size = UDim2.new(1, 0, 0, BAR_HEIGHT)
+	bar.BackgroundColor3 = Color3.new(0, 0, 0)
+	bar.BackgroundTransparency = 0.45
+	bar.BorderSizePixel = 0
+	bar.ClipsDescendants = true
+	bar.ZIndex = 6
+	bar.Parent = root
+
+	local lbl = Instance.new("TextLabel")
+	lbl.BackgroundTransparency = 1
+	lbl.AutomaticSize = Enum.AutomaticSize.X
+	lbl.Size = UDim2.new(0, 0, 1, 0)
+	lbl.Font = Enum.Font.Code
+	lbl.TextSize = 22
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.Text = top and TOP_TEXT or BOTTOM_TEXT
+	lbl.ZIndex = 7
+	lbl.Parent = bar
+
+	local line = Instance.new("Frame")
+	line.AnchorPoint = Vector2.new(0, top and 1 or 0)
+	line.Position = UDim2.fromScale(0, top and 1 or 0)
+	line.Size = UDim2.new(1, 0, 0, 2)
+	line.BorderSizePixel = 0
+	line.ZIndex = 7
+	line.Parent = bar
+
+	return bar, lbl, line
+end
+
+local topBar, topLbl, topLine = makeBar(true)
+local botBar, botLbl, botLine = makeBar(false)
+
+-- ورود نرم
+for _, o in ipairs({title, tlSub, brSub, trLbl, blLbl}) do
+	TweenService:Create(o, TweenInfo.new(1.2), {TextTransparency = 0}):Play()
+end
+TweenService:Create(ghostR, TweenInfo.new(1.2), {TextTransparency = 0.45}):Play()
+TweenService:Create(ghostC, TweenInfo.new(1.2), {TextTransparency = 0.45}):Play()
+
+---------------------------------------------------------------------
+-- منطق انیمیشن
+---------------------------------------------------------------------
+local rng = Random.new()
+local t = 0
+local topX, botX = 0, -2000
+local glitchTimer = 0
+local subTimer = 0
+local subIndex = 1
+
+local function scramble(str, amount)
+	local out = {}
+	for i = 1, #str do
+		local ch = str:sub(i, i)
+		if ch ~= " " and rng:NextNumber() < amount then
+			out[i] = GLITCH_CHARS[rng:NextInteger(1, #GLITCH_CHARS)]
+		else
+			out[i] = ch
+		end
+	end
+	return table.concat(out)
+end
+
+local function setTitleOffset(label, dx, dy)
+	label.Position = UDim2.new(TL_POS.X.Scale, TL_POS.X.Offset + dx, TL_POS.Y.Scale, TL_POS.Y.Offset + dy)
+end
+
+local conn
+conn = RunService.RenderStepped:Connect(function(dt)
+	t += dt
+
+	-- رنگ RGB
+	local hue = (t * 0.25) % 1
+	local col = Color3.fromHSV(hue, 1, 1)
+	local inv = Color3.fromHSV((hue + 0.5) % 1, 1, 1)
+	title.TextColor3 = col
+	stroke.Color = inv
+	tlSub.TextColor3 = Color3.fromHSV((hue + 0.2) % 1, 1, 1)
+	brSub.TextColor3 = Color3.fromHSV((hue + 0.15) % 1, 1, 1)
+	trLbl.TextColor3 = Color3.fromHSV((hue + 0.45) % 1, 1, 1)
+	blLbl.TextColor3 = Color3.fromHSV((hue + 0.75) % 1, 1, 1)
+	topLbl.TextColor3 = Color3.fromHSV((hue + 0.33) % 1, 1, 1)
+	botLbl.TextColor3 = Color3.fromHSV((hue + 0.66) % 1, 1, 1)
+	topLine.BackgroundColor3 = col
+	botLine.BackgroundColor3 = inv
+
+	-- نوارهای متحرک
+	local w = topBar.AbsoluteSize.X
+	topX -= 140 * dt
+	if topX + topLbl.AbsoluteSize.X < 0 then topX = w end
+	topLbl.Position = UDim2.fromOffset(topX, 0)
+
+	botX += 170 * dt
+	if botX > w then botX = -botLbl.AbsoluteSize.X end
+	botLbl.Position = UDim2.fromOffset(botX, 0)
+
+	-- لرزش ریز فقط روی عنوان گوشه
+	setTitleOffset(title, rng:NextNumber(-0.6, 0.6), rng:NextNumber(-0.6, 0.6))
+
+	-- گلیچ تصادفی روی عنوان
+	glitchTimer -= dt
+	if glitchTimer <= 0 then
+		glitchTimer = rng:NextNumber(0.6, 2.2)
+		task.spawn(function()
+			local strength = rng:NextNumber(5, 16)
+			for _ = 1, rng:NextInteger(4, 9) do
+				if not gui.Parent then return end
+				setTitleOffset(ghostR, -rng:NextNumber(0, strength), rng:NextNumber(-4, 4))
+				setTitleOffset(ghostC, rng:NextNumber(0, strength), rng:NextNumber(-4, 4))
+				title.Text = scramble(TITLE, 0.35)
+				ghostR.Text = title.Text
+				ghostC.Text = title.Text
+				task.wait(0.04)
+			end
+			title.Text, ghostR.Text, ghostC.Text = TITLE, TITLE, TITLE
+			setTitleOffset(ghostR, 0, 0)
+			setTitleOffset(ghostC, 0, 0)
+		end)
+	end
+
+	-- تغییر متن‌های گوشه‌ها
+	subTimer -= dt
+	if subTimer <= 0 then
+		subTimer = rng:NextNumber(1.2, 2.5)
+		subIndex = (subIndex % #CREEPY_SUBS) + 1
+		brSub.Text = scramble(CREEPY_SUBS[subIndex], 0.15)
+		tlSub.Text = scramble(CORNER_TL_SUB[rng:NextInteger(1, #CORNER_TL_SUB)], 0.1)
+		blLbl.Text = scramble(CORNER_BL[rng:NextInteger(1, #CORNER_BL)], 0.1)
+		trLbl.Text = scramble("SYS://GLITCH", 0.2)
+	end
+end)
+
+---------------------------------------------------------------------
+-- بستن با RightShift
+---------------------------------------------------------------------
+local inputConn
+inputConn = UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	if input.KeyCode == Enum.KeyCode.RightShift then
+		if conn then conn:Disconnect() end
+		if inputConn then inputConn:Disconnect() end
+		gui:Destroy()
+	end
+end)
+
+gui.Destroying:Connect(function()
+	if conn then conn:Disconnect() end
+	if inputConn then inputConn:Disconnect() end
+end)
+
+---------------------------------------------------------------------
+-- نابود شدن رابط بعد از مرگ
+---------------------------------------------------------------------
+local function watchDeath(char)
+	local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 10)
+	if not hum then return end
+	if hum.Health <= 0 then
+		gui:Destroy()
+		return
+	end
+	hum.Died:Connect(function()
+		if gui.Parent then
+			gui:Destroy()
+		end
+	end)
+end
+
+task.spawn(function()
+	local char = player.Character or player.CharacterAdded:Wait()
+	watchDeath(char)
+end)
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local hum = char:WaitForChild("Humanoid")
+
+-- R6 only
+if hum.RigType ~= Enum.HumanoidRigType.R6 then
+	warn("[RainbowWings] This script only runs on R6 characters.")
+	return
+end
+
+local torso = char:WaitForChild("Torso")
+local root = char:WaitForChild("HumanoidRootPart")
+
+local rad, CF, ANG = math.rad, CFrame.new, CFrame.Angles
+
+----------------------------------------------------------------
+-- 1) HD Admin command
+----------------------------------------------------------------
+local function sendChat(msg)
+	return pcall(function()
+		local TextChatService = game:GetService("TextChatService")
+		if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+			local channels = TextChatService:FindFirstChild("TextChannels")
+			local general = channels and channels:FindFirstChild("RBXGeneral")
+			assert(general, "RBXGeneral channel not found")
+			general:SendAsync(msg)
+		else
+			local events = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+			local say = events and events:FindFirstChild("SayMessageRequest")
+			assert(say, "SayMessageRequest not found")
+			say:FireServer(msg, "All")
+		end
+	end)
+end
+
+local function sendHDAdmin(cmd)
+	local ok = pcall(function()
+		local client = ReplicatedStorage:FindFirstChild("HDAdminHDClient")
+		local signals = client and client:FindFirstChild("Signals")
+		local remote = signals and (signals:FindFirstChild("RequestCommandSilent") or signals:FindFirstChild("RequestCommand"))
+		assert(remote, "HD Admin remote not found")
+		if remote:IsA("RemoteFunction") then
+			remote:InvokeServer(cmd)
+		else
+			remote:FireServer(cmd)
+		end
+	end)
+	if ok then
+		return true
+	end
+	-- no HD Admin remote in this game -> send it as a normal chat message
+	if sendChat(cmd) then
+		return true
+	end
+	warn("[RainbowWings] Could not send command (HD Admin remote and chat both failed): " .. cmd)
+	return false
+end
+
+-- on start: the fixed title (no cycling). Music is sent after the wings are built.
+task.spawn(sendHDAdmin, ";titleg me RAINBOW")
+
+-- stop everything when we die / respawn / the character is removed
+local stopped = false
+local inputConn
+local function shutdown()
+	if stopped then
+		return
+	end
+	stopped = true
+	if inputConn then
+		inputConn:Disconnect()
+	end
+	task.spawn(function()
+		sendHDAdmin(";untitle me")
+		sendHDAdmin(";unmusic")
+	end)
+end
+
+hum.Died:Connect(shutdown)
+player.CharacterRemoving:Connect(shutdown)
+char.AncestryChanged:Connect(function(_, parent)
+	if not parent then
+		shutdown()
+	end
+end)
+
+----------------------------------------------------------------
+-- 2) Find F3X SyncAPI
+----------------------------------------------------------------
+local function findSync()
+	for _, container in ipairs({player:FindFirstChildOfClass("Backpack"), char}) do
+		if container then
+			for _, tool in ipairs(container:GetChildren()) do
+				if tool:IsA("Tool") then
+					local api = tool:FindFirstChild("SyncAPI")
+					local ep = api and api:FindFirstChild("ServerEndpoint")
+					if ep then
+						return ep
+					end
+				end
+			end
+		end
+	end
+end
+
+local Sync = findSync()
+if not Sync then
+	warn("[RainbowWings] F3X Building Tools not found in Backpack/Character.")
+	return
+end
+
+local function call(...)
+	local args = {...}
+	local ok, res = pcall(function()
+		return Sync:InvokeServer(unpack(args))
+	end)
+	if not ok then
+		warn("[RainbowWings] SyncAPI error: " .. tostring(res))
+		return nil
+	end
+	return res
+end
+
+----------------------------------------------------------------
+-- 3) Compute layout (static pose = wings at mid-flap)
+----------------------------------------------------------------
+local specs = {} -- {cframe, size, hue}
+
+local handle = torso.CFrame * CF(0, 1.5, 1.05)
+
+-- wings
+local posX = {2, 3, 3.75, 4.75, 5.75, 6.75}
+local posY = {0, 1, 2, 3, 4, 5}
+local aX = {5, 10, 15, 20, 25, 30}
+local aZ = {12.5, 25, 37.5, 50, 62.5, 75}
+
+local pieces = {
+	{size = Vector3.new(0.05, 0.5, 0.5), c1 = CF(0, 0, 0.25) * ANG(0, rad(90), 0)},
+	{size = Vector3.new(0.05, 0.5, 0.5), c1 = CF(0, 0, 0.25) * ANG(0, rad(-90), 0)},
+	{size = Vector3.new(0.05, 0.5, 3), c1 = CF(0, -0.25, 1.75) * ANG(0, rad(90), rad(90))},
+	{size = Vector3.new(0.05, 3, 0.5), c1 = CF(0, -1.75, 0.25) * ANG(rad(90), rad(90), rad(90))},
+}
+
+for side = -1, 1, 2 do
+	for i = 1, 6 do
+		local wingC1 = CF(side * posX[i], posY[i], 0) * ANG(rad(aX[i]), 0, rad(side * aZ[i]))
+		local root = handle * wingC1:Inverse()
+		for _, p in ipairs(pieces) do
+			table.insert(specs, {
+				cframe = root * p.c1:Inverse(),
+				size = p.size,
+				hue = i / 6,
+				type = "Wedge",
+			})
+		end
+	end
+end
+
+-- halo rings
+local function addRing(offset, r, segments, segLen)
+	local center = torso.CFrame * CF(offset.X, -offset.Y, -offset.Z)
+	for i = 1, segments do
+		local c1 = CF(0, r, 0) * ANG(0, 0, rad(i * (360 / segments)))
+		table.insert(specs, {
+			cframe = center * c1:Inverse(),
+			size = Vector3.new(segLen, 0.1 * r, 0.1 * r),
+			hue = i / segments,
+			type = "Normal",
+		})
+	end
+end
+
+addRing(Vector3.new(0, -1.5, -1.05), 1, 24, 0.27)
+addRing(Vector3.new(0, -3, -2.1), 2, 32, 0.4)
+
+-- remember every spec relative to the torso (so it can be re-placed later)
+do
+	local inv = torso.CFrame:Inverse()
+	for _, s in ipairs(specs) do
+		s.rel = inv * s.cframe
+	end
+end
+
+----------------------------------------------------------------
+-- 4) Build with F3X
+----------------------------------------------------------------
+local parts = {}
+local entries = {}
+
+-- batched creation: fire many CreatePart calls in parallel, wait for each batch
+local BATCH_SIZE = 40
+for start = 1, #specs, BATCH_SIZE do
+	local finish = math.min(start + BATCH_SIZE - 1, #specs)
+	local pending = finish - start + 1
+	if stopped then
+		return
+	end
+	for idx = start, finish do
+		task.spawn(function()
+			local s = specs[idx]
+			s.part = call("CreatePart", s.type, s.cframe, workspace)
+			pending -= 1
+		end)
+	end
+	while pending > 0 do
+		task.wait()
+	end
+end
+
+for _, s in ipairs(specs) do
+	if s.part then
+		table.insert(parts, s.part)
+		table.insert(entries, {part = s.part, hue = s.hue})
+	end
+end
+
+if #parts == 0 then
+	warn("[RainbowWings] No parts were created.")
+	return
+end
+
+-- Freeze our character while the wings are positioned and welded, and re-place every
+-- part from the torso's CURRENT position (it may have moved while the parts were created).
+root.Anchored = true
+local baseCF = torso.CFrame
+for _, s in ipairs(specs) do
+	s.cframe = baseCF * s.rel
+end
+
+local resize, collide, material, anchor, anchorOn = {}, {}, {}, {}, {}
+for _, s in ipairs(specs) do
+	if s.part then
+		table.insert(anchorOn, {Part = s.part, Anchored = true})
+		table.insert(resize, {Part = s.part, CFrame = s.cframe, Size = s.size})
+		table.insert(collide, {Part = s.part, CanCollide = false})
+		table.insert(material, {Part = s.part, Material = Enum.Material.Neon})
+		table.insert(anchor, {Part = s.part, Anchored = false})
+	end
+end
+
+call("SyncAnchor", anchorOn) -- keep parts still while they are placed
+call("SyncResize", resize)
+call("SyncCollision", collide)
+call("SyncMaterial", material)
+
+-- weld everything to the torso so the wings stay static on the body
+call("CreateWelds", parts, torso)
+call("SyncAnchor", anchor)
+root.Anchored = false
+
+-- every Neon part gets its own PointLight (server-side, via F3X)
+local LIGHT_COLOR = Color3.fromRGB(255, 220, 0)
+local function addLights(list)
+	local create = {}
+	local sync = {}
+	for _, e in ipairs(list) do
+		table.insert(create, {Part = e.part, LightType = "PointLight"})
+		table.insert(sync, {
+			Part = e.part,
+			LightType = "PointLight",
+			Color = LIGHT_COLOR, -- fixed yellow, never changes
+			Brightness = 1,
+			Range = 8,
+		})
+	end
+	call("CreateLights", create)
+	call("SyncLighting", sync)
+end
+
+addLights(entries)
+
+-- wings are complete -> send music, then volume
+task.spawn(function()
+	sendHDAdmin(";music 70520000279740")
+	task.wait(1)
+	sendHDAdmin(";volume inf")
+end)
+
+----------------------------------------------------------------
+-- 4b) Click effect: animation + neon cylinders erupting from the ground
+----------------------------------------------------------------
+local ANIM_ID = "rbxassetid://209875013"
+local animTrack
+do
+	local ok, track = pcall(function()
+		local anim = Instance.new("Animation")
+		anim.AnimationId = ANIM_ID
+		local animator = hum:FindFirstChildOfClass("Animator") or hum
+		return animator:LoadAnimation(anim)
+	end)
+	if ok then
+		animTrack = track
+	end
+end
+
+local CYL_COUNT = 8
+local CYL_SPACING = 5 -- studs between cylinders (8 * 5 = ~40 studs ahead)
+local CYL_DELAY = 0.06 -- seconds between cylinders (sequential eruption)
+local RISE_STEPS = 4 -- fewer steps = faster rise
+local RISE_STEP_WAIT = 0.015
+local PARK_DEPTH = 80 -- how deep under the map the spare cylinders wait
+local HIDE_MARGIN = 4 -- extra studs below the ground before rising (raise it if any part still shows)
+
+local rayParams = RaycastParams.new()
+rayParams.FilterType = Enum.RaycastFilterType.Exclude
+rayParams.FilterDescendantsInstances = {char}
+
+local function groundY(pos)
+	local hit = workspace:Raycast(pos + Vector3.new(0, 20, 0), Vector3.new(0, -200, 0), rayParams)
+	return hit and hit.Position.Y or (pos.Y - 3)
+end
+
+-- sequential sizes: each cylinder is a bit taller/wider than the last
+local function cylSize(k)
+	return 10 + k * 3, 4 + k * 0.8
+end
+
+-- Builds a full batch of ready-to-go cylinders (size, Neon, color, PointLight,
+-- anchored, no collision) parked deep under the map, so a click only has to move them.
+local function buildPool()
+	local pool = {}
+	local pending = CYL_COUNT
+	local rp = root.Position
+	local gy = groundY(rp)
+
+	for k = 1, CYL_COUNT do
+		task.spawn(function()
+			local height, diameter = cylSize(k)
+			local park = CF(rp.X + k * 6, gy - PARK_DEPTH, rp.Z) * ANG(0, 0, rad(90))
+			local part = call("CreatePart", "Cylinder", park, workspace)
+			if part then
+				pool[k] = {part = part, k = k, height = height, diameter = diameter, park = park}
+			end
+			pending -= 1
+		end)
+	end
+	while pending > 0 do
+		task.wait()
+	end
+
+	local resize, anchor, collide, material, colors, createL, syncL = {}, {}, {}, {}, {}, {}, {}
+	for k = 1, CYL_COUNT do
+		local c = pool[k]
+		if c then
+			local color = Color3.fromHSV((k - 1) / CYL_COUNT, 1, 1)
+			table.insert(resize, {Part = c.part, CFrame = c.park, Size = Vector3.new(c.height, c.diameter, c.diameter)})
+			table.insert(anchor, {Part = c.part, Anchored = true})
+			table.insert(collide, {Part = c.part, CanCollide = false})
+			-- Material tool: Neon + 0.5 transparency (beam-of-light look)
+			table.insert(material, {Part = c.part, Material = Enum.Material.Neon, Transparency = 0.5})
+			table.insert(colors, {Part = c.part, Color = color, UnionColor = true})
+			table.insert(createL, {Part = c.part, LightType = "PointLight"})
+			table.insert(syncL, {Part = c.part, LightType = "PointLight", Color = LIGHT_COLOR, Brightness = 2, Range = 14})
+		end
+	end
+	call("SyncResize", resize)
+	call("SyncAnchor", anchor)
+	call("SyncCollision", collide)
+	call("SyncMaterial", material)
+	call("SyncColor", colors)
+	call("CreateLights", createL)
+	call("SyncLighting", syncL)
+
+	return pool
+end
+
+local readyPool = nil -- the prepared batch waiting under the map
+
+local function cleanupPool()
+	if readyPool then
+		local list = {}
+		for k = 1, CYL_COUNT do
+			if readyPool[k] then
+				table.insert(list, readyPool[k].part)
+			end
+		end
+		readyPool = nil
+		call("Remove", list)
+	end
+end
+
+local function refillPool()
+	readyPool = buildPool()
+	if stopped then
+		cleanupPool()
+	end
+end
+
+hum.Died:Connect(cleanupPool)
+player.CharacterRemoving:Connect(cleanupPool)
+
+-- prepare the first batch right away
+task.spawn(refillPool)
+
+-- Hit detection: any other player's character touching a rising cylinder
+-- gets its Head removed through F3X ("Remove"), which kills them.
+local hitModels = {}
+local overlapParams = OverlapParams.new()
+overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+overlapParams.FilterDescendantsInstances = {char}
+
+local function checkHits(part)
+	local ok, found = pcall(function()
+		return workspace:GetPartsInPart(part, overlapParams)
+	end)
+	if not ok then
+		return
+	end
+	for _, p in ipairs(found) do
+		local model = p:FindFirstAncestorOfClass("Model")
+		local plr = model and Players:GetPlayerFromCharacter(model)
+		if plr and plr ~= player and not hitModels[model] then
+			local head = model:FindFirstChild("Head")
+			if head then
+				hitModels[model] = true
+				task.spawn(call, "Remove", {head})
+				task.delay(5, function()
+					hitModels[model] = nil
+				end)
+			end
+		end
+	end
+end
+
+local function rise(c, cframeAt, startY, endY)
+	for s = 1, RISE_STEPS do
+		local y = startY + (endY - startY) * (s / RISE_STEPS)
+		call("SyncMove", {{Part = c.part, CFrame = cframeAt(y)}})
+		checkHits(c.part)
+		task.wait(RISE_STEP_WAIT)
+	end
+	-- stay up for 0.5s, still checking for hits
+	for _ = 1, 5 do
+		checkHits(c.part)
+		task.wait(0.1)
+	end
+	call("Remove", {c.part})
+end
+
+inputConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if stopped or gameProcessed or not readyPool then
+		return
+	end
+	if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+		return
+	end
+
+	-- take the prepared batch, and immediately start preparing the next one
+	local pool = readyPool
+	readyPool = nil
+	task.spawn(refillPool)
+
+	if animTrack then
+		animTrack:Play()
+	end
+
+	local origin = root.Position
+	local flat = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+	if flat.Magnitude < 0.01 then
+		flat = Vector3.new(0, 0, -1)
+	end
+	flat = flat.Unit
+
+	-- plan every cylinder (position under the ground ahead + its own random rotation)
+	local plans, moves = {}, {}
+	for k = 1, CYL_COUNT do
+		local c = pool[k]
+		if c then
+			local pos = origin + flat * (4 + (k - 1) * CYL_SPACING)
+			local gy = groundY(pos)
+			local rx = rad(math.random(-30, 30))
+			local ry = rad(math.random(0, 360))
+			local rz = rad(math.random(-30, 30))
+			local function cframeAt(y)
+				return CF(pos.X, y, pos.Z) * ANG(rx, ry, rz) * ANG(0, 0, rad(90))
+			end
+			-- fully hidden: half height + half diameter covers the tilt, plus a safety margin
+			local startY = gy - c.height / 2 - c.diameter / 2 - HIDE_MARGIN
+			local endY = gy + c.height / 2 -- standing on the ground
+			plans[k] = {c = c, cframeAt = cframeAt, startY = startY, endY = endY}
+			table.insert(moves, {Part = c.part, CFrame = cframeAt(startY)})
+		end
+	end
+
+	-- one batched move puts all prepared cylinders under their spots
+	call("SyncMove", moves)
+
+	-- then they erupt one after another
+	for k = 1, CYL_COUNT do
+		local p = plans[k]
+		if p then
+			task.spawn(rise, p.c, p.cframeAt, p.startY, p.endY)
+			task.wait(CYL_DELAY)
+		end
+	end
+end)
+
+----------------------------------------------------------------
+-- 5) Continuous rainbow color change
+----------------------------------------------------------------
+task.spawn(function()
+	while not stopped and torso.Parent and parts[1] and parts[1].Parent do
+		local base = (tick() * 0.2) % 1
+		local colors = {}
+		for _, e in ipairs(entries) do
+			local col = Color3.fromHSV((base + e.hue) % 1, 1, 1)
+			table.insert(colors, {Part = e.part, Color = col, UnionColor = true})
+		end
+		call("SyncColor", colors)
+		task.wait(0.5)
+	end
+end)
