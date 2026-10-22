@@ -1,0 +1,547 @@
+
+-- ================== تنظیمات ==================
+local MESH_ID      = "rbxassetid://18114736783"
+local TEXTURE_ID   = "rbxassetid://18268108895"
+local MESH_OFFSET  = Vector3.new(0, 0.5, -0.25)
+local KNIFE_SIZE   = Vector3.new(1, 1, 1)
+local GRIP_POSITION = Vector3.new(0, -1.6, -0.75)
+local GRIP_ROTATION = Vector3.new(0, 0, 0)
+local GRIP_OFFSET  = CFrame.new(GRIP_POSITION)
+    * CFrame.Angles(math.rad(GRIP_ROTATION.X), math.rad(GRIP_ROTATION.Y), math.rad(GRIP_ROTATION.Z))
+local ATTACK_RANGE    = 8     -- فاصله‌ی Grab
+local BEHIND_DISTANCE = 0.8   -- فاصله‌ی ما تا پشت هدف بعد از تلپورت
+local COOLDOWN     = 1
+local KNIFE_NAME   = "AdminKnifePart"
+local FREEZE_TIME  = 0.5        -- چند ثانیه حریف Anchor بمونه قبل از Unanchor
+-- ===========================================
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local ContentProvider = game:GetService("ContentProvider")
+local player = Players.LocalPlayer
+
+----------------------------------------------------------------
+-- نوتیفیکیشن
+----------------------------------------------------------------
+local function notify(msg)
+    task.spawn(function()
+        local pg = player:WaitForChild("PlayerGui")
+        local gui = pg:FindFirstChild("MainGUI")
+        if not gui then
+            gui = Instance.new("ScreenGui")
+            gui.Name = "MainGUI"
+            gui.ResetOnSpawn = false
+            gui.Parent = pg
+        end
+        for _, v in ipairs(gui:GetChildren()) do
+            if v:IsA("TextLabel") then v:Destroy() end
+        end
+        local label = Instance.new("TextLabel")
+        label.BackgroundColor3 = Color3.fromRGB(58, 58, 58)
+        label.BackgroundTransparency = 0.2
+        label.BorderSizePixel = 0
+        label.Position = UDim2.new(0.2, 0, 0.05, 0)
+        label.Size = UDim2.new(0.6, 0, 0.1, 0)
+        label.Font = Enum.Font.SourceSans
+        label.TextColor3 = Color3.new(1, 1, 1)
+        label.TextScaled = true
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Text = "  || " .. msg
+        label.Parent = gui
+        task.wait(2.5)
+        label:Destroy()
+    end)
+end
+
+----------------------------------------------------------------
+-- پیدا کردن ریموت F3X
+----------------------------------------------------------------
+local function findRemote()
+    for _, root in ipairs({ player, ReplicatedStorage }) do
+        for _, v in ipairs(root:GetDescendants()) do
+            if v.Name == "SyncAPI" and v:FindFirstChild("ServerEndpoint") then
+                return v.ServerEndpoint
+            end
+        end
+    end
+end
+
+local remote
+for _ = 1, 20 do
+    remote = findRemote()
+    if remote then break end
+    task.wait(0.5)
+end
+if not remote then
+    notify("You Not Have F3X Nigga")
+    return
+end
+
+local function sync(...)
+    local args = { ... }
+    local ok, res = pcall(function()
+        return remote:InvokeServer(table.unpack(args))
+    end)
+    if not ok then warn("[Knife] SyncAPI error:", res) end
+    return ok and res or nil
+end
+
+----------------------------------------------------------------
+-- توابع F3X
+----------------------------------------------------------------
+local function SetAnchor(part, bool)
+    if part and part.Parent then
+        sync("SyncAnchor", { { Part = part, Anchored = bool } })
+    end
+end
+
+local function SetCollision(part, bool)
+    sync("SyncCollision", { { Part = part, CanCollide = bool } })
+end
+
+local function SetLocked(parts, bool)
+    sync("SetLocked", parts, bool)
+end
+
+local function MovePart(part, cf)
+    sync("SyncMove", { { Part = part, CFrame = cf } })
+end
+
+local function Resize(part, size, cf)
+    sync("SyncResize", { { Part = part, CFrame = cf or part.CFrame, Size = size } })
+end
+
+local function Color(part, color)
+    sync("SyncColor", { { Part = part, Color = color, UnionColoring = false } })
+end
+
+local function SetTrans(part, t)
+    sync("SyncMaterial", { { Part = part, Transparency = t } })
+end
+
+local function DestroyPart(part)
+    if part and part.Parent then
+        sync("Remove", { part })
+    end
+end
+
+local function Weld(parts, lead)
+    return sync("CreateWelds", parts, lead)
+end
+
+-- CanCollide کل بدن حریف (همه‌ی پارت‌ها)
+local function SetCharacterCollision(char, bool)
+    local list = {}
+    for _, d in ipairs(char:GetDescendants()) do
+        if d:IsA("BasePart") then
+            table.insert(list, { Part = d, CanCollide = bool })
+        end
+    end
+    if #list > 0 then
+        sync("SyncCollision", list)
+    end
+end
+
+-- بعد از مرگ فقط اعضای اصلی بدن رو دوباره Collide می‌کنیم
+local function RestoreBodyCollision(char)
+    local list = {}
+    for _, name in ipairs({ "Torso", "Right Arm", "Left Arm", "Right Leg", "Left Leg" }) do
+        local p = char:FindFirstChild(name)
+        if p then
+            table.insert(list, { Part = p, CanCollide = true })
+        end
+    end
+    if #list > 0 then
+        sync("SyncCollision", list)
+    end
+end
+
+----------------------------------------------------------------
+-- تشخیص Idle و گارد "فقط Idle"
+----------------------------------------------------------------
+local function isIdleTrack(t)
+    local anim = t.Animation
+    if not anim then return false end
+    if anim.Parent and string.lower(anim.Parent.Name) == "idle" then return true end
+    if string.find(string.lower(anim.Name), "idle", 1, true) then return true end
+    if string.find(string.lower(t.Name), "idle", 1, true) then return true end
+    return false
+end
+
+local function stopNonIdle(humanoid)
+    local animator = humanoid:FindFirstChildOfClass("Animator")
+    if not animator then return end
+    for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
+        if not isIdleTrack(t) then
+            t:Stop(0)
+        end
+    end
+end
+
+-- صبر تا Idle واقعاً پلی بشه؛ true اگه پیداش کرد
+local function waitForIdle(character, humanoid, timeout)
+    character:WaitForChild("Animate", timeout)
+    local animator = humanoid:FindFirstChildOfClass("Animator")
+        or humanoid:WaitForChild("Animator", timeout)
+    if not animator then return false end
+    local t0 = os.clock()
+    while os.clock() - t0 < timeout do
+        for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
+            if isIdleTrack(t) then return true end
+        end
+        task.wait(0)
+    end
+    return false
+end
+
+----------------------------------------------------------------
+-- ساخت چاقو
+----------------------------------------------------------------
+local knifePart
+
+local function buildKnife(character, humanoid)
+    local arm = character:WaitForChild("Left Arm", 5) -- R6
+    if not arm then
+        notify("You Not Have Arm Nigga")
+        return nil
+    end
+
+    -- گارد فقط وقتی روشن میشه که Idle واقعاً شناسایی شده باشه
+    local idleFound = waitForIdle(character, humanoid, 2)
+    local guard
+    if idleFound then
+        local startT = os.clock()
+        guard = RunService.Heartbeat:Connect(function()
+            if humanoid.Health <= 0 or os.clock() - startT > 5 then
+                if guard then guard:Disconnect() end
+                return
+            end
+            stopNonIdle(humanoid)
+        end)
+    end
+
+    local function cleanup()
+        if guard then guard:Disconnect() guard = nil end
+    end
+
+    local root = character:FindFirstChild("HumanoidRootPart")
+    local function freeze(state)
+        if root then SetAnchor(root, state) end
+    end
+    freeze(true)
+
+    local old = character:FindFirstChild(KNIFE_NAME)
+    if old then DestroyPart(old) end
+
+    local startCF = arm.CFrame * GRIP_OFFSET
+    local part = sync("CreatePart", "Normal", startCF, character)
+    if not part then
+        freeze(false)
+        cleanup()
+        notify("Cant Create Part With Your Fucking F3X")
+        return nil
+    end
+    part.Name = KNIFE_NAME
+
+    Resize(part, KNIFE_SIZE, startCF)
+    MovePart(part, startCF)
+    SetLocked({ part }, false)
+
+    sync("CreateMeshes", { { Part = part } })
+    sync("SyncMesh", { {
+        Part = part,
+        MeshId = MESH_ID,
+        TextureId = TEXTURE_ID,
+        Offset = MESH_OFFSET,
+    } })
+
+    SetCollision(part, false)
+
+    Weld({ part }, arm)
+    SetAnchor(part, false)
+
+    task.wait(0.3)
+    freeze(false)
+    task.wait(0.1)
+    cleanup()
+
+    return part
+end
+
+----------------------------------------------------------------
+-- منطق حمله
+----------------------------------------------------------------
+local function getTarget(character)
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if not root then return nil end
+    local best, bestDist
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player and p.Character then
+            local r = p.Character:FindFirstChild("HumanoidRootPart")
+            local h = p.Character:FindFirstChildOfClass("Humanoid")
+            if r and h and h.Health > 0 then
+                local offset = r.Position - root.Position
+                local d = offset.Magnitude
+                if d > 0.01 and d <= ATTACK_RANGE and root.CFrame.LookVector:Dot(offset.Unit) > 0.3 then
+                    if not bestDist or d < bestDist then
+                        best, bestDist = p, d
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function bleed(victimChar)
+    local root = victimChar:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    local startTime = os.clock()
+    task.spawn(function()
+        while os.clock() - startTime < 2.5 and victimChar.Parent and root.Parent do
+            task.spawn(function()
+                local blood = sync("CreatePart", "Ball", CFrame.new(0, -10, 0), victimChar)
+                if not blood then return end
+                Color(blood, Color3.fromRGB(100, 0, 0))
+                Resize(blood, Vector3.new(0.2, 0.2, 0.2),
+                    root.CFrame + Vector3.new(math.random(-1, 1), 0, math.random(-1, 1)))
+                SetAnchor(blood, false)
+                task.wait(2)
+                Resize(blood, Vector3.new(3, 0.1, 3), blood.CFrame)
+                Resize(blood, Vector3.new(0.9, 0.1, 0.9), blood.CFrame)
+                for _, t in ipairs({ 0.9, 0.7, 0.5, 0.3, 0.1 }) do
+                    SetTrans(blood, t)
+                end
+                DestroyPart(blood)
+            end)
+            task.wait(0.05)
+        end
+    end)
+end
+
+-- صبر روی انیمیشن با سقف زمانی (دیگه هنگ نمی‌کنه)
+local function playAndWait(track, speed, maxWait)
+    track:Play()
+    if speed then track:AdjustSpeed(speed) end
+    local done = false
+    local c = track.Stopped:Connect(function() done = true end)
+    local t0 = os.clock()
+    while not done and os.clock() - t0 < (maxWait or 1.5) do
+        task.wait()
+    end
+    c:Disconnect()
+end
+
+----------------------------------------------------------------
+-- راه‌اندازی کاراکتر
+----------------------------------------------------------------
+local setupId = 0
+local activeConn
+
+local function setupCharacter(character)
+    setupId += 1
+    local myId = setupId
+
+    if activeConn then
+        activeConn:Disconnect()
+        activeConn = nil
+    end
+
+    local humanoid = character:WaitForChild("Humanoid")
+    local myTorso = character:WaitForChild("Torso", 5)
+    if not myTorso then
+        notify("You Not R6 Nigga")
+        return
+    end
+
+    knifePart = buildKnife(character, humanoid)
+    if not knifePart then return end
+
+    if myId ~= setupId or humanoid.Health <= 0 or player.Character ~= character then
+        return
+    end
+
+    local animator = humanoid:FindFirstChildOfClass("Animator")
+    local loadedTracks = {}
+
+    local function loadAnim(id)
+        local a = Instance.new("Animation")
+        a.AnimationId = "rbxassetid://" .. id
+        local t = (animator or humanoid):LoadAnimation(a)
+        t.Looped = false
+        table.insert(loadedTracks, t)
+        return t
+    end
+    local track1    = loadAnim(27432691)  -- staff up
+    local track2    = loadAnim(27432686)  -- sword hit
+    local holdTrack = loadAnim(57794492)  -- hold
+    local stabTrack = loadAnim(30174375)  -- stab
+
+    pcall(function()
+        ContentProvider:PreloadAsync({
+            track1.Animation, track2.Animation, holdTrack.Animation, stabTrack.Animation,
+        })
+    end)
+
+    local isBusy = false
+    local lockConn
+
+    -- تلپورت پشت هدف + قفل کردن جامون تا آخر حمله
+    local function teleportBehind(targetChar)
+        local root = character:FindFirstChild("HumanoidRootPart")
+        local tRoot = targetChar:FindFirstChild("HumanoidRootPart")
+        if not (root and tRoot) then return end
+
+        local function behindCF()
+            -- جلوی هدف = -Z ؛ پس پشتش = +Z و هم‌جهت با هدف
+            return tRoot.CFrame * CFrame.new(0, 0, BEHIND_DISTANCE)
+        end
+
+        root.CFrame = behindCF()
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+
+        if lockConn then lockConn:Disconnect() end
+        lockConn = RunService.Heartbeat:Connect(function()
+            if not (root.Parent and tRoot.Parent) then
+                lockConn:Disconnect()
+                lockConn = nil
+                return
+            end
+            root.CFrame = behindCF()
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        end)
+    end
+
+    local function unlockPosition()
+        if lockConn then
+            lockConn:Disconnect()
+            lockConn = nil
+        end
+    end
+
+    local function stopOurTracks()
+        for _, t in ipairs(loadedTracks) do
+            pcall(function() t:Stop(0) end)
+        end
+    end
+
+    local function failAnim()
+        playAndWait(track1, 3, 1)
+        holdTrack:Play()
+        task.wait(0.3)
+        holdTrack:Stop()
+    end
+
+    local function attack()
+        if isBusy or humanoid.Health <= 0 or myId ~= setupId then return end
+        isBusy = true
+
+        local anchored = false
+        local collisionOff = false
+        local anchorDone = false
+        local collisionDone = false
+        local tRoot, tChar
+
+        local ok, err = pcall(function()
+            local target = getTarget(character)
+            if not (target and target.Character) then
+                failAnim()
+                task.wait(COOLDOWN * 0.4)
+                return
+            end
+
+            tChar = target.Character
+            tRoot = tChar:FindFirstChild("HumanoidRootPart")
+            if not (tRoot and tChar:FindFirstChild("Head")) then return end
+
+            -- 1) Anchor + CanCollide=false برای کل بدن حریف (پس‌زمینه)
+            anchored = true
+            collisionOff = true
+            task.spawn(function()
+                SetAnchor(tRoot, true)
+                anchorDone = true
+            end)
+            task.spawn(function()
+                SetCharacterCollision(tChar, false)
+                collisionDone = true
+            end)
+
+            -- 2) تلپورت پشت حریف + انیمیشن
+            teleportBehind(tChar)
+            playAndWait(track1, 2, 0.8)
+
+            playAndWait(track2, 3, 1)
+            holdTrack:Play()
+            holdTrack:AdjustSpeed(0)
+
+            -- 3) مطمئن شو Anchor و Collision نشسته، بعد FREEZE_TIME صبر
+            local t0 = os.clock()
+            while not (anchorDone and collisionDone) and os.clock() - t0 < 2 do
+                task.wait()
+            end
+            task.wait(FREEZE_TIME)
+
+            -- 4) Unanchor
+            SetAnchor(tRoot, false)
+            anchored = false
+
+            -- 5) ضربه + خون + حذف Head
+            task.spawn(function()
+                playAndWait(stabTrack, nil, 2)
+                holdTrack:Stop()
+            end)
+            bleed(tChar)
+            task.wait(0.45)
+            DestroyPart(tChar:FindFirstChild("Head"))
+            task.wait(0.8)
+        end)
+
+        if not ok then warn("[Knife] attack error:", err) end
+        if anchored and tRoot then SetAnchor(tRoot, false) end
+        unlockPosition()
+        holdTrack:Stop()
+
+        -- برگردوندن Collision اعضای بدن حریف
+        if collisionOff and tChar then
+            local c = tChar
+            task.delay(0.8, function()
+                RestoreBodyCollision(c)
+            end)
+        end
+
+        isBusy = false
+    end
+
+    activeConn = UserInputService.InputBegan:Connect(function(input, processed)
+        if processed then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            attack()
+        end
+    end)
+    local conn = activeConn
+
+    humanoid.Died:Connect(function()
+        if conn then conn:Disconnect() end
+        if activeConn == conn then activeConn = nil end
+        unlockPosition()
+        stopOurTracks()
+        for _, t in ipairs(loadedTracks) do
+            pcall(function() t:Destroy() end)
+        end
+    end)
+
+    notify("Grab Knife Ready!")
+end
+
+if player.Character then
+    task.spawn(setupCharacter, player.Character)
+end
+player.CharacterAdded:Connect(function(char)
+    task.wait(1)
+    setupCharacter(char)
+end)
