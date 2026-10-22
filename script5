@@ -1,0 +1,798 @@
+--[[
+    Project: C00LHACK Env Logger & Reconstructor
+    Description: Comprehensive UI Property Serializer (TextScaled, FontFace, BorderColor3, BorderSizePixel, Rotation, etc.), Copy All Button, G2L Table, Center & Drag System
+]]
+
+local CoreGui = game:GetService("CoreGui")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+
+-- پاکسازی پنل قبلی در صورت وجود
+if CoreGui:FindFirstChild("C00LHACK_EnvLogger") then
+    CoreGui.C00LHACK_EnvLogger:Destroy()
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "C00LHACK_EnvLogger"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+pcall(function() ScreenGui.Parent = CoreGui end)
+if not ScreenGui.Parent then
+    ScreenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- فریم اصلی پنل (کوچک‌تر و متناسب برای موبایل و PC)
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 480, 0, 440)
+MainFrame.Position = UDim2.new(0.5, -240, 0.5, -220)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+MainFrame.BorderSizePixel = 0
+MainFrame.ClipsDescendants = true
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = MainFrame
+
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Color = Color3.fromRGB(0, 229, 255)
+UIStroke.Thickness = 1.5
+UIStroke.Transparency = 0.3
+UIStroke.Parent = MainFrame
+
+-- نوار بالا (TitleBar برای درگ کردن پنل اصلی)
+local TitleBar = Instance.new("Frame")
+TitleBar.Size = UDim2.new(1, 0, 0, 32)
+TitleBar.BackgroundColor3 = Color3.fromRGB(22, 22, 30)
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = MainFrame
+
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 8)
+TitleCorner.Parent = TitleBar
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size = UDim2.new(1, -45, 1, 0)
+TitleLabel.Position = UDim2.new(0, 10, 0, 0)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Font = Enum.Font.Code
+TitleLabel.Text = "C00LHACK ENV LOGGER"
+TitleLabel.TextColor3 = Color3.fromRGB(0, 229, 255)
+TitleLabel.TextSize = 12
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.Parent = TitleBar
+
+-- دکمه بستن (X)
+local CloseButton = Instance.new("TextButton")
+CloseButton.Size = UDim2.new(0, 24, 0, 24)
+CloseButton.Position = UDim2.new(1, -28, 0, 4)
+CloseButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+CloseButton.Font = Enum.Font.GothamBold
+CloseButton.Text = "X"
+CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseButton.TextSize = 11
+CloseButton.Parent = TitleBar
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 6)
+CloseCorner.Parent = CloseButton
+
+CloseButton.MouseButton1Click:Connect(function()
+    ScreenGui:Destroy()
+end)
+
+-- بخش ورودی اسکریپت
+local InputLabel = Instance.new("TextLabel")
+InputLabel.Size = UDim2.new(1, -20, 0, 18)
+InputLabel.Position = UDim2.new(0, 10, 0, 38)
+InputLabel.BackgroundTransparency = 1
+InputLabel.Font = Enum.Font.Code
+InputLabel.Text = "INPUT SCRIPT"
+InputLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
+InputLabel.TextSize = 10
+InputLabel.TextXAlignment = Enum.TextXAlignment.Left
+InputLabel.Parent = MainFrame
+
+local InputScroll = Instance.new("ScrollingFrame")
+InputScroll.Size = UDim2.new(1, -20, 0, 110)
+InputScroll.Position = UDim2.new(0, 10, 0, 58)
+InputScroll.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
+InputScroll.BorderSizePixel = 0
+InputScroll.CanvasSize = UDim2.new(0, 0, 0, 110)
+InputScroll.ScrollBarThickness = 5
+InputScroll.Parent = MainFrame
+
+local InputScrollCorner = Instance.new("UICorner")
+InputScrollCorner.CornerRadius = UDim.new(0, 6)
+InputScrollCorner.Parent = InputScroll
+
+local InputBox = Instance.new("TextBox")
+InputBox.Size = UDim2.new(1, 0, 1, 0)
+InputBox.BackgroundTransparency = 1
+InputBox.MultiLine = true
+InputBox.ClearTextOnFocus = false
+InputBox.Font = Enum.Font.Code
+InputBox.PlaceholderText = "-- Paste your script here..."
+InputBox.Text = ""
+InputBox.TextColor3 = Color3.fromRGB(240, 240, 255)
+InputBox.TextSize = 11
+InputBox.TextXAlignment = Enum.TextXAlignment.Left
+InputBox.TextYAlignment = Enum.TextYAlignment.Top
+InputBox.TextWrapped = true
+InputBox.Parent = InputScroll
+
+InputBox:GetPropertyChangedSignal("TextBounds"):Connect(function()
+    local textH = math.max(110, InputBox.TextBounds.Y + 15)
+    InputScroll.CanvasSize = UDim2.new(0, 0, 0, textH)
+    InputBox.Size = UDim2.new(1, 0, 0, textH)
+end)
+
+InputScroll.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        InputBox:CaptureFocus()
+    end
+end)
+
+-- دکمه‌های کنترل (تنظیم شده برای اندازه جدید 480 پیکسلی)
+local btnWidth = 110
+local btnGap = 6
+
+local LogButton = Instance.new("TextButton")
+LogButton.Size = UDim2.new(0, btnWidth, 0, 30)
+LogButton.Position = UDim2.new(0, 10, 0, 174)
+LogButton.BackgroundColor3 = Color3.fromRGB(0, 180, 220)
+LogButton.Font = Enum.Font.GothamBold
+LogButton.Text = "▶ LOG"
+LogButton.TextColor3 = Color3.fromRGB(15, 15, 20)
+LogButton.TextSize = 11
+LogButton.Parent = MainFrame
+local LogCorner = Instance.new("UICorner")
+LogCorner.CornerRadius = UDim.new(0, 6)
+LogCorner.Parent = LogButton
+
+local CopyButton = Instance.new("TextButton")
+CopyButton.Size = UDim2.new(0, btnWidth, 0, 30)
+CopyButton.Position = UDim2.new(0, 10 + btnWidth + btnGap, 0, 174)
+CopyButton.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
+CopyButton.Font = Enum.Font.GothamBold
+CopyButton.Text = "📋 COPY"
+CopyButton.TextColor3 = Color3.fromRGB(240, 240, 255)
+CopyButton.TextSize = 11
+CopyButton.Parent = MainFrame
+local CopyCorner = Instance.new("UICorner")
+CopyCorner.CornerRadius = UDim.new(0, 6)
+CopyCorner.Parent = CopyButton
+
+local CopyAllButton = Instance.new("TextButton")
+CopyAllButton.Size = UDim2.new(0, btnWidth, 0, 30)
+CopyAllButton.Position = UDim2.new(0, 10 + (btnWidth + btnGap) * 2, 0, 174)
+CopyAllButton.BackgroundColor3 = Color3.fromRGB(100, 80, 220)
+CopyAllButton.Font = Enum.Font.GothamBold
+CopyAllButton.Text = "📚 COPY ALL"
+CopyAllButton.TextColor3 = Color3.fromRGB(240, 240, 255)
+CopyAllButton.TextSize = 11
+CopyAllButton.Parent = MainFrame
+local CopyAllCorner = Instance.new("UICorner")
+CopyAllCorner.CornerRadius = UDim.new(0, 6)
+CopyAllCorner.Parent = CopyAllButton
+
+local ClearButton = Instance.new("TextButton")
+ClearButton.Size = UDim2.new(0, btnWidth, 0, 30)
+ClearButton.Position = UDim2.new(0, 10 + (btnWidth + btnGap) * 3, 0, 174)
+ClearButton.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+ClearButton.Font = Enum.Font.GothamBold
+ClearButton.Text = "🗑 CLEAR"
+ClearButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ClearButton.TextSize = 11
+ClearButton.Parent = MainFrame
+local ClearCorner = Instance.new("UICorner")
+ClearCorner.CornerRadius = UDim.new(0, 6)
+ClearCorner.Parent = ClearButton
+
+-- بخش خروجی
+local OutputLabel = Instance.new("TextLabel")
+OutputLabel.Size = UDim2.new(0, 80, 0, 18)
+OutputLabel.Position = UDim2.new(0, 10, 0, 210)
+OutputLabel.BackgroundTransparency = 1
+OutputLabel.Font = Enum.Font.Code
+OutputLabel.Text = "OUTPUT"
+OutputLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
+OutputLabel.TextSize = 10
+OutputLabel.TextXAlignment = Enum.TextXAlignment.Left
+OutputLabel.Parent = MainFrame
+
+local PageInfoLabel = Instance.new("TextLabel")
+PageInfoLabel.Size = UDim2.new(0, 110, 0, 18)
+PageInfoLabel.Position = UDim2.new(1, -210, 0, 210)
+PageInfoLabel.BackgroundTransparency = 1
+PageInfoLabel.Font = Enum.Font.Code
+PageInfoLabel.Text = ""
+PageInfoLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
+PageInfoLabel.TextSize = 10
+PageInfoLabel.TextXAlignment = Enum.TextXAlignment.Right
+PageInfoLabel.Parent = MainFrame
+
+local PrevPageBtn = Instance.new("TextButton")
+PrevPageBtn.Size = UDim2.new(0, 42, 0, 18)
+PrevPageBtn.Position = UDim2.new(1, -94, 0, 210)
+PrevPageBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+PrevPageBtn.Font = Enum.Font.Code
+PrevPageBtn.Text = "<"
+PrevPageBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+PrevPageBtn.TextSize = 11
+PrevPageBtn.Visible = false
+PrevPageBtn.Parent = MainFrame
+local PrevCorner = Instance.new("UICorner")
+PrevCorner.CornerRadius = UDim.new(0, 4)
+PrevCorner.Parent = PrevPageBtn
+
+local NextPageBtn = Instance.new("TextButton")
+NextPageBtn.Size = UDim2.new(0, 42, 0, 18)
+NextPageBtn.Position = UDim2.new(1, -48, 0, 210)
+NextPageBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+NextPageBtn.Font = Enum.Font.Code
+NextPageBtn.Text = ">"
+NextPageBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+NextPageBtn.TextSize = 11
+NextPageBtn.Visible = false
+NextPageBtn.Parent = MainFrame
+local NextCorner = Instance.new("UICorner")
+NextCorner.CornerRadius = UDim.new(0, 4)
+NextCorner.Parent = NextPageBtn
+
+local OutputScroll = Instance.new("ScrollingFrame")
+OutputScroll.Size = UDim2.new(1, -20, 0, 194)
+OutputScroll.Position = UDim2.new(0, 10, 0, 232)
+OutputScroll.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
+OutputScroll.BorderSizePixel = 0
+OutputScroll.CanvasSize = UDim2.new(0, 0, 0, 194)
+OutputScroll.ScrollBarThickness = 5
+OutputScroll.Parent = MainFrame
+
+local OutputScrollCorner = Instance.new("UICorner")
+OutputScrollCorner.CornerRadius = UDim.new(0, 6)
+OutputScrollCorner.Parent = OutputScroll
+
+local OutputBox = Instance.new("TextBox")
+OutputBox.Size = UDim2.new(1, 0, 1, 0)
+OutputBox.BackgroundTransparency = 1
+OutputBox.MultiLine = true
+OutputBox.ClearTextOnFocus = false
+OutputBox.Font = Enum.Font.Code
+OutputBox.PlaceholderText = "-- Output will appear here..."
+OutputBox.Text = "-- Output will appear here..."
+OutputBox.TextColor3 = Color3.fromRGB(0, 255, 180)
+OutputBox.TextSize = 11
+OutputBox.TextXAlignment = Enum.TextXAlignment.Left
+OutputBox.TextYAlignment = Enum.TextYAlignment.Top
+OutputBox.TextWrapped = true
+OutputBox.Parent = OutputScroll
+
+OutputBox:GetPropertyChangedSignal("TextBounds"):Connect(function()
+    local textH = math.max(194, OutputBox.TextBounds.Y + 15)
+    OutputScroll.CanvasSize = UDim2.new(0, 0, 0, textH)
+    OutputBox.Size = UDim2.new(1, 0, 0, textH)
+end)
+
+local function makeScrollSmart(scrollFrame)
+    scrollFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseWheel then
+            local delta = input.Position.Z * 50
+            local newY = math.clamp(scrollFrame.CanvasPosition.Y - delta, 0, math.max(0, scrollFrame.CanvasSize.Y.Offset - scrollFrame.AbsoluteSize.Y))
+            scrollFrame.CanvasPosition = Vector2.new(0, newY)
+        end
+    end)
+end
+
+makeScrollSmart(InputScroll)
+makeScrollSmart(OutputScroll)
+
+local logPages = {}
+local currentPage = 1
+
+local function updatePageDisplay()
+    if #logPages > 1 then
+        PrevPageBtn.Visible = true
+        NextPageBtn.Visible = true
+        PageInfoLabel.Text = string.format("Page %d / %d", currentPage, #logPages)
+        OutputBox.Text = logPages[currentPage]
+    else
+        PrevPageBtn.Visible = false
+        NextPageBtn.Visible = false
+        PageInfoLabel.Text = ""
+        OutputBox.Text = logPages[1] or "-- Output will appear here..."
+    end
+end
+
+PrevPageBtn.MouseButton1Click:Connect(function()
+    if currentPage > 1 then
+        currentPage = currentPage - 1
+        updatePageDisplay()
+    end
+end)
+
+NextPageBtn.MouseButton1Click:Connect(function()
+    if currentPage < #logPages then
+        currentPage = currentPage + 1
+        updatePageDisplay()
+    end
+end)
+
+local function getObjectPath(obj)
+    if not obj then return "nil" end
+    if obj == workspace then return "workspace" end
+    if obj == game then return "game" end
+    
+    local current = obj
+    local pathParts = {}
+    
+    while current and current ~= game do
+        table.insert(pathParts, 1, current.Name)
+        current = current.Parent
+    end
+    
+    if current ~= game then
+        return "workspace"
+    end
+    
+    local topChildName = pathParts[1]
+    local path = string.format('game:GetService("%s")', topChildName)
+    
+    for i = 2, #pathParts do
+        local partName = pathParts[i]
+        if partName:match("^[%a_][%w_]*$") then
+            path = path .. "." .. partName
+        else
+            path = path .. string.format('[%q]', partName)
+        end
+    end
+    
+    return path
+end
+
+LogButton.MouseButton1Click:Connect(function()
+    local sourceCode = InputBox.Text
+    if sourceCode == "" then 
+        logPages = {"-- Error: Input script is empty!"}
+        currentPage = 1
+        updatePageDisplay()
+        return 
+    end
+
+    local rawLogs = {}
+    table.insert(rawLogs, "-- Generated by C00LHACK Env Logger")
+    table.insert(rawLogs, "local G2L = {}")
+    table.insert(rawLogs, "")
+
+    local createdInstances = {}
+    local isSpying = false
+
+    local mt = getrawmetatable(game)
+    local oldNamecall = mt.__namecall
+    setreadonly(mt, false)
+
+    mt.__namecall = function(self, ...)
+        local method = getnamecallmethod()
+        local args = {...}
+        
+        local res = oldNamecall(self, ...)
+        
+        if isSpying and (method == "HttpGet" or method == "HttpGetAsync" or method == "HttpPost" or method == "HttpPostAsync") then
+            local url = tostring(args[1])
+            if type(res) == "string" and res ~= "" then
+                task.spawn(function()
+                    table.insert(rawLogs, "-- [Decoded Script from: " .. url .. "]")
+                    table.insert(rawLogs, res)
+                end)
+            end
+        end
+        
+        return res
+    end
+    setreadonly(mt, true)
+
+    local gameProxy = {}
+    setmetatable(gameProxy, {
+        __index = function(_, k)
+            local val = game[k]
+            if typeof(val) == "function" then
+                if k == "HttpGet" or k == "HttpGetAsync" or k == "HttpPost" or k == "HttpPostAsync" then
+                    return function(self, url, ...)
+                        local res = val(game, url, ...)
+                        if isSpying and url and type(res) == "string" and res ~= "" then
+                            task.spawn(function()
+                                table.insert(rawLogs, "-- [Decoded Script from: " .. tostring(url) .. "]")
+                                table.insert(rawLogs, res)
+                            end)
+                        end
+                        return res
+                    end
+                elseif k == "GetService" then
+                    return function(_, sName)
+                        local service = game:GetService(sName)
+                        if sName == "HttpService" then
+                            local sProxy = {}
+                            setmetatable(sProxy, {
+                                __index = function(_, sk)
+                                    local sVal = service[sk]
+                                    if typeof(sVal) == "function" and (sk == "GetAsync" or sk == "PostAsync" or sk == "RequestAsync") then
+                                        return function(sSelf, url, ...)
+                                            local res = sVal(service, url, ...)
+                                            if isSpying and url then
+                                                task.spawn(function()
+                                                    local body = ""
+                                                    if type(res) == "string" then
+                                                        body = res
+                                                    elseif type(res) == "table" and res.Body then
+                                                        body = res.Body
+                                                    end
+                                                    if body ~= "" then
+                                                        table.insert(rawLogs, "-- [Decoded Script from HttpService: " .. tostring(url) .. "]")
+                                                        table.insert(rawLogs, body)
+                                                    end
+                                                end)
+                                            end
+                                            return res
+                                        end
+                                    end
+                                    return sVal
+                                end
+                            })
+                            return sProxy
+                        end
+                        return service
+                    end
+                end
+                return function(_, ...)
+                    return val(game, ...)
+                end
+            end
+            return val
+        end
+    })
+
+    local customEnv = {}
+    setmetatable(customEnv, {
+        __index = function(_, k)
+            if k == "print" then
+                return function(...)
+                    local args = {...}
+                    local formatted = {}
+                    for _, v in ipairs(args) do table.insert(formatted, tostring(v)) end
+                    local str = table.concat(formatted, "\t")
+                    table.insert(rawLogs, string.format('print(%q)', str))
+                end
+            elseif k == "warn" then
+                return function(...)
+                    local args = {...}
+                    local formatted = {}
+                    for _, v in ipairs(args) do table.insert(formatted, tostring(v)) end
+                    local str = table.concat(formatted, "\t")
+                    table.insert(rawLogs, string.format('warn(%q)', str))
+                end
+            elseif k == "game" then
+                return gameProxy
+            elseif k == "loadstring" then
+                local realLoadstring = getfenv().loadstring
+                return function(code, chunkname)
+                    if isSpying and type(code) == "string" and code ~= "" then
+                        table.insert(rawLogs, "-- [Decoded Loadstring Code]")
+                        table.insert(rawLogs, code)
+                    end
+                    if realLoadstring then
+                        return realLoadstring(code, chunkname)
+                    end
+                    return nil
+                end
+            elseif k == "request" or k == "http_request" then
+                local realReq = getfenv()[k]
+                if not realReq then return nil end
+                return function(options)
+                    local res = realReq(options)
+                    if isSpying and type(options) == "table" and options.Url then
+                        task.spawn(function()
+                            local body = ""
+                            if type(res) == "table" and res.Body then
+                                body = res.Body
+                            elseif type(res) == "string" then
+                                body = res
+                            end
+                            if body ~= "" then
+                                table.insert(rawLogs, "-- [Decoded Script from Request: " .. tostring(options.Url) .. "]")
+                                table.insert(rawLogs, body)
+                            end
+                        end)
+                    end
+                    return res
+                end
+            elseif k == "Instance" then
+                local realInstance = getfenv().Instance
+                local proxyInstance = {}
+                for ik, iv in pairs(realInstance) do proxyInstance[ik] = iv end
+                
+                proxyInstance.new = function(className, parent)
+                    local obj = realInstance.new(className, parent)
+                    table.insert(createdInstances, obj)
+                    return obj
+                end
+                return proxyInstance
+            else
+                return getfenv()[k]
+            end
+        end
+    })
+
+    local fn, loadErr = loadstring(sourceCode)
+    if not fn then
+        logPages = {"-- Compilation Error:\n" .. tostring(loadErr)}
+        currentPage = 1
+        updatePageDisplay()
+        return
+    end
+
+    setfenv(fn, customEnv)
+
+    isSpying = true
+    local success, runErr = pcall(fn)
+    isSpying = false
+
+    task.wait(0.2)
+
+    setreadonly(mt, false)
+    mt.__namecall = oldNamecall
+    setreadonly(mt, true)
+
+    if not success then
+        table.insert(rawLogs, "-- Runtime Error encountered: " .. tostring(runErr))
+    end
+
+    local g2lMap = {}
+    local counter = 0
+    local mainFrameVar = nil
+
+    for _, obj in ipairs(createdInstances) do
+        if obj and obj.Parent then
+            counter = counter + 1
+            local varName = string.format("G2L[%d]", counter)
+            g2lMap[obj] = varName
+            
+            table.insert(rawLogs, string.format('%s = Instance.new("%s")', varName, obj.ClassName))
+            
+            if obj:IsA("Frame") and not mainFrameVar then
+                local parentObj = obj.Parent
+                local isParentFrame = parentObj and parentObj:IsA("Frame")
+                if not isParentFrame then
+                    mainFrameVar = varName
+                end
+            end
+        end
+    end
+
+    table.insert(rawLogs, "")
+    table.insert(rawLogs, "-- Properties & Final State Setup")
+
+    for _, obj in ipairs(createdInstances) do
+        local varName = g2lMap[obj]
+        if varName then
+            pcall(function()
+                table.insert(rawLogs, string.format('%s.Name = %q', varName, obj.Name))
+                
+                if obj.Parent and g2lMap[obj.Parent] then
+                    table.insert(rawLogs, string.format('%s.Parent = %s', varName, g2lMap[obj.Parent]))
+                elseif obj.Parent then
+                    table.insert(rawLogs, string.format('%s.Parent = %s', varName, getObjectPath(obj.Parent)))
+                end
+                
+                if obj:IsA("BasePart") then
+                    table.insert(rawLogs, string.format('%s.Size = Vector3.new(%.3f, %.3f, %.3f)', varName, obj.Size.X, obj.Size.Y, obj.Size.Z))
+                    table.insert(rawLogs, string.format('%s.Position = Vector3.new(%.3f, %.3f, %.3f)', varName, obj.Position.X, obj.Position.Y, obj.Position.Z))
+                    table.insert(rawLogs, string.format('%s.Color = Color3.fromRGB(%d, %d, %d)', varName, math.floor(obj.Color.R*255), math.floor(obj.Color.G*255), math.floor(obj.Color.B*255)))
+                    table.insert(rawLogs, string.format('%s.Transparency = %.2f', varName, obj.Transparency))
+                    table.insert(rawLogs, string.format('%s.Anchored = %s', varName, tostring(obj.Anchored)))
+                    table.insert(rawLogs, string.format('%s.CanCollide = %s', varName, tostring(obj.CanCollide)))
+                elseif obj:IsA("GuiObject") then
+                    if varName == mainFrameVar then
+                        table.insert(rawLogs, string.format('%s.Size = UDim2.new(%.3f, %d, %.3f, %d)', varName, obj.Size.X.Scale, obj.Size.X.Offset, obj.Size.Y.Scale, obj.Size.Y.Offset))
+                        table.insert(rawLogs, string.format('%s.Position = UDim2.new(0.5, -%d, 0.5, -%d)', varName, math.floor(obj.AbsoluteSize.X / 2), math.floor(obj.AbsoluteSize.Y / 2)))
+                    else
+                        table.insert(rawLogs, string.format('%s.Size = UDim2.new(%.3f, %d, %.3f, %d)', varName, obj.Size.X.Scale, obj.Size.X.Offset, obj.Size.Y.Scale, obj.Size.Y.Offset))
+                        table.insert(rawLogs, string.format('%s.Position = UDim2.new(%.3f, %d, %.3f, %d)', varName, obj.Position.X.Scale, obj.Position.X.Offset, obj.Position.Y.Scale, obj.Position.Y.Offset))
+                    end
+                    
+                    table.insert(rawLogs, string.format('%s.AnchorPoint = Vector2.new(%.2f, %.2f)', varName, obj.AnchorPoint.X, obj.AnchorPoint.Y))
+                    table.insert(rawLogs, string.format('%s.BackgroundColor3 = Color3.fromRGB(%d, %d, %d)', varName, math.floor(obj.BackgroundColor3.R*255), math.floor(obj.BackgroundColor3.G*255), math.floor(obj.BackgroundColor3.B*255)))
+                    table.insert(rawLogs, string.format('%s.BackgroundTransparency = %.2f', varName, obj.BackgroundTransparency))
+                    table.insert(rawLogs, string.format('%s.BorderSizePixel = %d', varName, obj.BorderSizePixel))
+                    table.insert(rawLogs, string.format('%s.BorderColor3 = Color3.fromRGB(%d, %d, %d)', varName, math.floor(obj.BorderColor3.R*255), math.floor(obj.BorderColor3.G*255), math.floor(obj.BorderColor3.B*255)))
+                    table.insert(rawLogs, string.format('%s.Visible = %s', varName, tostring(obj.Visible)))
+                    table.insert(rawLogs, string.format('%s.ZIndex = %d', varName, obj.ZIndex))
+                    table.insert(rawLogs, string.format('%s.LayoutOrder = %d', varName, obj.LayoutOrder))
+                    table.insert(rawLogs, string.format('%s.ClipsDescendants = %s', varName, tostring(obj.ClipsDescendants)))
+                    table.insert(rawLogs, string.format('%s.Active = %s', varName, tostring(obj.Active)))
+                    table.insert(rawLogs, string.format('%s.Rotation = %.2f', varName, obj.Rotation))
+                    
+                    if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+                        table.insert(rawLogs, string.format('%s.Text = %q', varName, obj.Text))
+                        table.insert(rawLogs, string.format('%s.TextColor3 = Color3.fromRGB(%d, %d, %d)', varName, math.floor(obj.TextColor3.R*255), math.floor(obj.TextColor3.G*255), math.floor(obj.TextColor3.B*255)))
+                        table.insert(rawLogs, string.format('%s.TextSize = %d', varName, obj.TextSize))
+                        table.insert(rawLogs, string.format('%s.TextScaled = %s', varName, tostring(obj.TextScaled)))
+                        table.insert(rawLogs, string.format('%s.TextWrapped = %s', varName, tostring(obj.TextWrapped)))
+                        table.insert(rawLogs, string.format('%s.RichText = %s', varName, tostring(obj.RichText)))
+                        table.insert(rawLogs, string.format('%s.TextXAlignment = Enum.TextXAlignment.%s', varName, tostring(obj.TextXAlignment):match("%.([^%.]+)$") or "Left"))
+                        table.insert(rawLogs, string.format('%s.TextYAlignment = Enum.TextYAlignment.%s', varName, tostring(obj.TextYAlignment):match("%.([^%.]+)$") or "Center"))
+                        pcall(function()
+                            table.insert(rawLogs, string.format('%s.FontFace = Font.new(%q)', varName, obj.FontFace.Family))
+                        end)
+                    elseif obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
+                        table.insert(rawLogs, string.format('%s.Image = %q', varName, obj.Image))
+                        table.insert(rawLogs, string.format('%s.ImageColor3 = Color3.fromRGB(%d, %d, %d)', varName, math.floor(obj.ImageColor3.R*255), math.floor(obj.ImageColor3.G*255), math.floor(obj.ImageColor3.B*255)))
+                        table.insert(rawLogs, string.format('%s.ImageTransparency = %.2f', varName, obj.ImageTransparency))
+                    elseif obj:IsA("ScrollingFrame") then
+                        table.insert(rawLogs, string.format('%s.CanvasSize = UDim2.new(%.3f, %d, %.3f, %d)', varName, obj.CanvasSize.X.Scale, obj.CanvasSize.X.Offset, obj.CanvasSize.Y.Scale, obj.CanvasSize.Y.Offset))
+                        table.insert(rawLogs, string.format('%s.ScrollBarThickness = %d', varName, obj.ScrollBarThickness))
+                    end
+                elseif obj:IsA("ScreenGui") then
+                    table.insert(rawLogs, string.format('%s.ResetOnSpawn = %s', varName, tostring(obj.ResetOnSpawn)))
+                    table.insert(rawLogs, string.format('%s.ZIndexBehavior = Enum.ZIndexBehavior.%s', varName, tostring(obj.ZIndexBehavior):match("%.([^%.]+)$") or "Sibling"))
+                    table.insert(rawLogs, string.format('%s.IgnoreGuiInset = %s', varName, tostring(obj.IgnoreGuiInset)))
+                elseif obj:IsA("UICorner") then
+                    table.insert(rawLogs, string.format('%s.CornerRadius = UDim.new(%.3f, %d)', varName, obj.CornerRadius.Scale, obj.CornerRadius.Offset))
+                elseif obj:IsA("UIStroke") then
+                    table.insert(rawLogs, string.format('%s.Thickness = %.1f', varName, obj.Thickness))
+                    table.insert(rawLogs, string.format('%s.Color = Color3.fromRGB(%d, %d, %d)', varName, math.floor(obj.Color.R*255), math.floor(obj.Color.G*255), math.floor(obj.Color.B*255)))
+                    table.insert(rawLogs, string.format('%s.Transparency = %.2f', varName, obj.Transparency))
+                end
+            end)
+        end
+    end
+
+    if mainFrameVar then
+        table.insert(rawLogs, "")
+        table.insert(rawLogs, "-- Standard Drag System")
+        table.insert(rawLogs, string.format([[
+local _UIS = game:GetService("UserInputService")
+local _dragging, _dragInput, _dragStart, _startPos
+local _targetFrame = %s
+
+_targetFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        _dragging = true
+        _dragStart = input.Position
+        _startPos = _targetFrame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                _dragging = false
+            end
+        end)
+    end
+end)
+
+_targetFrame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        _dragInput = input
+    end
+end)
+
+game:GetService("RunService").RenderStepped:Connect(function()
+    if _dragging and _dragInput then
+        local delta = _dragInput.Position - _dragStart
+        _targetFrame.Position = UDim2.new(_startPos.X.Scale, _startPos.X.Offset + delta.X, _startPos.Y.Scale, _startPos.Y.Offset + delta.Y)
+    end
+end)
+]], mainFrameVar))
+    end
+
+    logPages = {}
+    local chunkSize = 60
+    local currentChunk = {}
+    
+    for _, line in ipairs(rawLogs) do
+        table.insert(currentChunk, line)
+        if #currentChunk >= chunkSize then
+            table.insert(logPages, table.concat(currentChunk, "\n"))
+            currentChunk = {}
+        end
+    end
+    
+    if #currentChunk > 0 then
+        table.insert(logPages, table.concat(currentChunk, "\n"))
+    end
+
+    currentPage = 1
+    updatePageDisplay()
+end)
+
+-- دکمه Copy Page
+CopyButton.MouseButton1Click:Connect(function()
+    local textToCopy = logPages[currentPage] or OutputBox.Text
+    local success = pcall(function()
+        setclipboard(textToCopy)
+    end)
+    
+    if success then
+        CopyButton.Text = "✔ COPIED!"
+        CopyButton.TextColor3 = Color3.fromRGB(0, 255, 180)
+        task.wait(1.5)
+        CopyButton.Text = "📋 COPY"
+        CopyButton.TextColor3 = Color3.fromRGB(240, 240, 255)
+    else
+        CopyButton.Text = "❌ FAILED"
+        task.wait(1.5)
+        CopyButton.Text = "📋 COPY"
+        CopyButton.TextColor3 = Color3.fromRGB(240, 240, 255)
+    end
+end)
+
+-- دکمه Copy All
+CopyAllButton.MouseButton1Click:Connect(function()
+    local fullText = table.concat(logPages, "\n\n")
+    local success = pcall(function()
+        setclipboard(fullText)
+    end)
+    
+    if success then
+        CopyAllButton.Text = "✔ ALL COPIED!"
+        CopyAllButton.TextColor3 = Color3.fromRGB(0, 255, 180)
+        task.wait(1.5)
+        CopyAllButton.Text = "📚 COPY ALL"
+        CopyAllButton.TextColor3 = Color3.fromRGB(240, 240, 255)
+    else
+        CopyAllButton.Text = "❌ FAILED"
+        task.wait(1.5)
+        CopyAllButton.Text = "📚 COPY ALL"
+        CopyAllButton.TextColor3 = Color3.fromRGB(240, 240, 255)
+    end
+end)
+
+-- دکمه Clear
+ClearButton.MouseButton1Click:Connect(function()
+    logPages = {"-- Output cleared."}
+    currentPage = 1
+    updatePageDisplay()
+    ClearButton.Text = "✔ CLEARED"
+    task.wait(1)
+    ClearButton.Text = "🗑 CLEAR"
+end)
+
+local function makeDraggable(targetFrame)
+    local uis = game:GetService("UserInputService")
+    local tweenService = game:GetService("TweenService")
+    
+    local dragging, dragInput, dragStart, startPos
+    
+    targetFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = targetFrame.Position
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    
+    targetFrame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+    
+    uis.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            local newPos = UDim2.new(
+                startPos.X.Scale, 
+                startPos.X.Offset + delta.X, 
+                startPos.Y.Scale, 
+                startPos.Y.Offset + delta.Y
+            )
+            tweenService:Create(targetFrame, TweenInfo.new(0.15), {Position = newPos}):Play()
+        end
+    end)
+end
+
+makeDraggable(MainFrame)
