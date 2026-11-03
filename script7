@@ -1,0 +1,399 @@
+-- LocalScript (StarterPlayerScripts یا StarterGui)
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+local TELEPORT_DELAY = 0.5 -- مکث بین هر تلپورت (ثانیه)
+
+---------------------------------------------------------------------
+-- Helpers
+---------------------------------------------------------------------
+local function tween(obj, time, props, style, dir)
+	local t = TweenService:Create(obj, TweenInfo.new(time, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out), props)
+	t:Play()
+	return t
+end
+
+local function corner(parent, radius)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, radius)
+	c.Parent = parent
+	return c
+end
+
+---------------------------------------------------------------------
+-- GUI
+---------------------------------------------------------------------
+local old = player:WaitForChild("PlayerGui"):FindFirstChild("RunScriptPanel")
+if old then old:Destroy() end -- جلوگیری از ساخته شدن چند پنل
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "RunScriptPanel"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = player.PlayerGui
+
+-- ظرف اصلی: درگ و انیمیشن باز/بسته شدن روی این انجام می‌شود
+local RootCorner = Instance.new("UICorner")
+local root = Instance.new("Frame")
+root.Name = "Root"
+root.AnchorPoint = Vector2.new(0.5, 0.5)
+root.Size = UDim2.fromOffset(300, 200)
+root.BackgroundTransparency = 1
+root.Parent = gui
+
+local scale = Instance.new("UIScale")
+scale.Scale = 0
+scale.Parent = root
+
+-- سایه (با Frame ساخته شده تا به asset خارجی وابسته نباشد)
+local shadow = Instance.new("Frame")
+shadow.Name = "Shadow"
+shadow.AnchorPoint = Vector2.new(0.5, 0.5)
+shadow.Position = UDim2.new(0.5, 0, 0.5, 8)
+shadow.Size = UDim2.new(1, 14, 1, 14)
+shadow.BackgroundColor3 = Color3.new(0, 0, 0)
+shadow.BackgroundTransparency = 0.7
+shadow.BorderSizePixel = 0
+shadow.ZIndex = 0
+shadow.Parent = root
+corner(shadow, 20)
+
+local main = Instance.new("Frame")
+main.Name = "Main"
+main.Size = UDim2.fromScale(1, 1)
+main.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
+main.BorderSizePixel = 0
+main.ClipsDescendants = true
+main.ZIndex = 1
+main.Parent = root
+corner(main, 14)
+
+local mainGradient = Instance.new("UIGradient")
+mainGradient.Color = ColorSequence.new(Color3.fromRGB(30, 30, 44), Color3.fromRGB(14, 14, 20))
+mainGradient.Rotation = 90
+mainGradient.Parent = main
+
+local stroke = Instance.new("UIStroke")
+stroke.Thickness = 1.5
+stroke.Color = Color3.new(1, 1, 1)
+stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+stroke.Parent = main
+
+local strokeGradient = Instance.new("UIGradient")
+strokeGradient.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(125, 85, 255)),
+	ColorSequenceKeypoint.new(0.5, Color3.fromRGB(0, 200, 255)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(125, 85, 255)),
+})
+strokeGradient.Parent = stroke
+
+-- نوار عنوان (محل درگ)
+local titleBar = Instance.new("Frame")
+titleBar.Name = "TitleBar"
+titleBar.Size = UDim2.new(1, 0, 0, 42)
+titleBar.BackgroundColor3 = Color3.fromRGB(34, 34, 50)
+titleBar.BorderSizePixel = 0
+titleBar.ZIndex = 2
+titleBar.Parent = main
+RootCorner.Parent = titleBar
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -60, 1, 0)
+title.Position = UDim2.fromOffset(16, 0)
+title.BackgroundTransparency = 1
+title.Text = "C00LHACK Best Anti Bang"
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.TextColor3 = Color3.fromRGB(240, 240, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 16
+title.ZIndex = 3
+title.Parent = titleBar
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Name = "Close"
+closeBtn.Size = UDim2.fromOffset(26, 26)
+closeBtn.Position = UDim2.new(1, -36, 0.5, -13)
+closeBtn.BackgroundColor3 = Color3.fromRGB(230, 70, 80)
+closeBtn.Text = "X"
+closeBtn.TextColor3 = Color3.new(1, 1, 1)
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 13
+closeBtn.AutoButtonColor = false
+closeBtn.ZIndex = 3
+closeBtn.Parent = titleBar
+corner(closeBtn, 8)
+
+-- دکمه Run Script (هاور با UIScale تا موقعیت/اندازه به هم نریزد)
+-- نکته: فرزندِ یک TextButton همیشه روی متن آن کشیده می‌شود،
+-- پس پس‌زمینه و دکمه باید «همزاد» باشند، نه پدر و فرزند.
+local holder = Instance.new("Frame")
+holder.Name = "RunScriptHolder"
+holder.Size = UDim2.new(1, -40, 0, 50)
+holder.Position = UDim2.fromOffset(20, 62)
+holder.BackgroundTransparency = 1
+holder.ZIndex = 2
+holder.Parent = main
+
+local btnScale = Instance.new("UIScale")
+btnScale.Parent = holder
+
+local btnBg = Instance.new("Frame")
+btnBg.Name = "Bg"
+btnBg.Size = UDim2.fromScale(1, 1)
+btnBg.BackgroundColor3 = Color3.new(1, 1, 1)
+btnBg.BorderSizePixel = 0
+btnBg.ZIndex = 2
+btnBg.Parent = holder
+corner(btnBg, 12)
+
+local button = Instance.new("TextButton")
+button.Name = "RunScript"
+button.Size = UDim2.fromScale(1, 1)
+button.BackgroundTransparency = 1
+button.Text = "Run Script"
+button.TextColor3 = Color3.new(1, 1, 1)
+button.Font = Enum.Font.GothamBold
+button.TextSize = 19
+button.AutoButtonColor = false
+button.ZIndex = 3
+button.Parent = holder
+
+local btnGradient = Instance.new("UIGradient")
+btnGradient.Color = ColorSequence.new(Color3.fromRGB(125, 85, 255), Color3.fromRGB(0, 170, 255))
+btnGradient.Rotation = 20
+btnGradient.Parent = btnBg
+
+local btnStroke = Instance.new("UIStroke")
+btnStroke.Color = Color3.new(0, 0, 0)
+btnStroke.Transparency = 0.6
+btnStroke.Thickness = 1
+btnStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+btnStroke.Parent = button -- کانتور ملایم برای خوانایی بهتر متن
+
+-- متن Info
+local info = Instance.new("TextLabel")
+info.Name = "Info"
+info.Size = UDim2.new(1, -40, 0, 62)
+info.Position = UDim2.fromOffset(20, 128)
+info.BackgroundColor3 = Color3.fromRGB(30, 30, 44)
+info.Text = "بهترین انتی بنگ ایران تاور که فردی که روی شما بنگ میزند را کیک میکند"
+info.TextColor3 = Color3.fromRGB(205, 205, 225)
+info.Font = Enum.Font.Gotham
+info.TextSize = 14
+info.TextWrapped = true
+info.TextXAlignment = Enum.TextXAlignment.Center
+info.ZIndex = 2
+info.Parent = main
+corner(info, 10)
+
+local infoPad = Instance.new("UIPadding")
+infoPad.PaddingLeft = UDim.new(0, 10)
+infoPad.PaddingRight = UDim.new(0, 10)
+infoPad.Parent = info
+
+-- چرخش گرادیان حاشیه
+local rotConn = RunService.RenderStepped:Connect(function(dt)
+	strokeGradient.Rotation = (strokeGradient.Rotation + 60 * dt) % 360
+end)
+
+-- افکت‌های هاور / کلیک
+button.MouseEnter:Connect(function()
+	tween(btnScale, 0.15, {Scale = 1.04})
+end)
+button.MouseLeave:Connect(function()
+	tween(btnScale, 0.15, {Scale = 1})
+end)
+button.MouseButton1Down:Connect(function()
+	tween(btnScale, 0.08, {Scale = 0.96})
+end)
+button.MouseButton1Up:Connect(function()
+	tween(btnScale, 0.1, {Scale = 1.04})
+end)
+closeBtn.MouseEnter:Connect(function()
+	tween(closeBtn, 0.15, {BackgroundColor3 = Color3.fromRGB(255, 100, 110)})
+end)
+closeBtn.MouseLeave:Connect(function()
+	tween(closeBtn, 0.15, {BackgroundColor3 = Color3.fromRGB(230, 70, 80)})
+end)
+
+---------------------------------------------------------------------
+-- موقعیت اولیه + درگ روان (موس + تاچ، با محدودیت داخل صفحه)
+---------------------------------------------------------------------
+local viewport = gui.AbsoluteSize
+local targetPos = Vector2.new(viewport.X / 2, viewport.Y / 2)
+local currentPos = targetPos
+root.Position = UDim2.fromOffset(currentPos.X, currentPos.Y)
+
+local dragging = false
+local dragStartInput, dragStartTarget
+
+local function clampToScreen(v)
+	local vs = gui.AbsoluteSize
+	local halfW, halfH = root.AbsoluteSize.X / 2, root.AbsoluteSize.Y / 2
+	return Vector2.new(
+		math.clamp(v.X, halfW, math.max(halfW, vs.X - halfW)),
+		math.clamp(v.Y, halfH, math.max(halfH, vs.Y - halfH))
+	)
+end
+
+titleBar.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		dragStartInput = input.Position
+		dragStartTarget = targetPos
+		local conn
+		conn = input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragging = false
+				conn:Disconnect()
+			end
+		end)
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+		or input.UserInputType == Enum.UserInputType.Touch) then
+		local delta = Vector2.new(input.Position.X - dragStartInput.X, input.Position.Y - dragStartInput.Y)
+		targetPos = clampToScreen(dragStartTarget + delta)
+	end
+end)
+
+-- Lerp هر فریم؛ مستقل از FPS و بدون لرزش
+local dragConn = RunService.RenderStepped:Connect(function(dt)
+	local alpha = 1 - math.exp(-22 * dt)
+	currentPos = currentPos:Lerp(targetPos, alpha)
+	root.Position = UDim2.fromOffset(math.floor(currentPos.X + 0.5), math.floor(currentPos.Y + 0.5))
+end)
+
+-- انیمیشن ظاهر شدن
+tween(scale, 0.4, {Scale = 1}, Enum.EasingStyle.Back)
+
+-- بستن
+closeBtn.MouseButton1Click:Connect(function()
+	tween(scale, 0.25, {Scale = 0}, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+	task.wait(0.28)
+	rotConn:Disconnect()
+	dragConn:Disconnect()
+	gui:Destroy()
+end)
+
+---------------------------------------------------------------------
+-- Logic
+---------------------------------------------------------------------
+local function getTargets()
+	local list = {}
+	local ok, island = pcall(function() return workspace:FindFirstChild("HarborGardenIsland") end)
+	if not ok or not island then return list end
+
+	local function add(folderName, partName)
+		local folder = island:FindFirstChild(folderName)
+		local part = folder and folder:FindFirstChild(partName)
+		if part and part:IsA("BasePart") then
+			table.insert(list, part)
+		end
+	end
+
+	add("GrappleObby", "swap part26")
+	add("IranTowerObby", "swap part2")
+	add("IranTowerObby", "swap part")
+	return list
+end
+
+local busy = false
+
+local function setButton(text)
+	if button and button.Parent then button.Text = text end
+end
+
+button.MouseButton1Click:Connect(function()
+	if busy then return end
+
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not hrp or not hum then return end
+
+	busy = true
+	setButton("Running...")
+
+	local originalCFrame = hrp.CFrame
+	local oldSubject = camera.CameraSubject
+	local oldType = camera.CameraType
+	local camPart
+	local targets = getTargets()
+	local saved = {}
+
+	local function restore()
+		-- ۱) برگشت به جای اول، صفر کردن سرعت و آزاد کردن کاراکتر
+		if hrp and hrp.Parent then
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
+			hrp.CFrame = originalCFrame
+		end
+		-- ۲) حذف پارت
+		if camPart then camPart:Destroy() end
+		-- برگرداندن دوربین
+		camera.CameraSubject = (oldSubject and oldSubject.Parent) and oldSubject or hum
+		camera.CameraType = oldType
+		-- برگرداندن ویژگی‌ها
+		for part, props in pairs(saved) do
+			if part and part.Parent then
+				part.CanTouch = props.CanTouch
+				part.CanCollide = props.CanCollide
+				part.CanQuery = props.CanQuery
+			end
+		end
+	end
+
+	local ok, err = pcall(function()
+		-- 1) پارت کلاینت‌ساید در وسط HumanoidRootPart
+		camPart = Instance.new("Part")
+		camPart.Name = "ClientCamPart"
+		camPart.Size = Vector3.new(4, 1, 4)
+		camPart.Transparency = 0.5
+		camPart.CanCollide = false
+		camPart.CanTouch = false
+		camPart.CanQuery = false
+        camPart.Anchored = true
+		camPart.CFrame = hrp.CFrame
+		camPart.Parent = workspace
+
+		-- 2) دوربین روی پارت
+		camera.CameraSubject = camPart
+
+		-- 3) غیرفعال کردن CanTouch / CanCollide / CanQuery
+		for _, p in ipairs(targets) do
+			saved[p] = {CanTouch = p.CanTouch, CanCollide = p.CanCollide, CanQuery = p.CanQuery}
+			p.CanTouch = false
+			p.CanCollide = false
+			p.CanQuery = false
+		end
+
+		-- 4) تلپورت به ترتیب به هرکدام
+		-- HumanoidRootPart حین عملیات Anchored است تا نیفتیم (CanCollide پارت‌ها خاموش است)
+		for _, p in ipairs(targets) do
+			if not hrp.Parent then error("character removed") end
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
+			hrp.CFrame = p.CFrame * CFrame.new(0, 3, 0)
+			task.wait(TELEPORT_DELAY)
+		end
+
+		-- 5) برگشت به جای اول در همان لحظه (بدون مکث اضافه) توسط restore() انجام می‌شود
+	end)
+
+	-- 6) در هر حالت (حتی خطا) همه چیز برمی‌گردد
+	restore()
+
+	if not ok then warn("[RunScriptPanel]", err) end
+	setButton("Run Script")
+	busy = false
+end)
