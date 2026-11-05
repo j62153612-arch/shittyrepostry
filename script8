@@ -1,0 +1,718 @@
+--[[
+    ORBIT MASTER  |  Client-Side Only
+    - پنل با دکمه Orbit ON/OFF
+    - دکمه انتخاب مود (۱۰ مود)
+    - اسلایدر SimulationRadius + Radius + Speed (با کادر تایپ)
+    - فقط حرکت فیزیکی (که برای همه replicate می‌شه) - بدون Trail و رنگ کلاینت‌ساید
+]]
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local LocalPlayer = Players.LocalPlayer
+
+local env = (getgenv and getgenv()) or _G
+if env.__OrbitCleanup then pcall(env.__OrbitCleanup) end
+
+---------------------------------------------------------------------
+-- STATE
+---------------------------------------------------------------------
+local State = {
+    Enabled = false,
+    Mode = 1,
+    SimRadius = 100000,
+    Radius = 12, -- فاصله‌ی Part ها از ما
+    Speed = 1,
+    MaxParts = 250,
+}
+
+local TAU = math.pi * 2
+local PHI = 2.399963229728653
+local sin, cos, sqrt, floor, ceil = math.sin, math.cos, math.sqrt, math.floor, math.ceil
+
+local function fib(i, n, t)
+    local y = 1 - 2 * (i - 0.5) / n
+    local r = sqrt(math.max(0, 1 - y * y))
+    local a = i * PHI + t
+    return Vector3.new(cos(a) * r, y, sin(a) * r)
+end
+
+---------------------------------------------------------------------
+-- 10 ORBIT MODES  (fn returns local offset; follow = rotate with player)
+---------------------------------------------------------------------
+-- داده‌های کمکی برای مودهای خطی (Cube / Pyramid / Star)
+local CUBE_EDGES = {}
+do
+    local function corner3(c)
+        return Vector3.new((c % 2) * 2 - 1, (floor(c / 2) % 2) * 2 - 1, (floor(c / 4) % 2) * 2 - 1)
+    end
+    for a = 0, 7 do
+        for b = a + 1, 7 do
+            local x = bit32.bxor(a, b)
+            if x == 1 or x == 2 or x == 4 then
+                CUBE_EDGES[#CUBE_EDGES + 1] = { corner3(a), corner3(b) }
+            end
+        end
+    end
+end
+
+local PYR_BASE = { Vector3.new(-1, -1, -1), Vector3.new(1, -1, -1), Vector3.new(1, -1, 1), Vector3.new(-1, -1, 1) }
+local PYR_TOP = Vector3.new(0, 1.3, 0)
+
+local STAR = {}
+for k = 0, 5 do
+    STAR[k + 1] = Vector2.new(sin(k * 4 * math.pi / 5), cos(k * 4 * math.pi / 5))
+end
+
+-- Gyro Sphere: قاب ثابت هر حلقه (محورش ثابته، پس هیچ پرشی نداریم)
+local GYRO_K = 7
+local GYRO_FRAMES = {}
+for r = 0, GYRO_K - 1 do
+    GYRO_FRAMES[r] = CFrame.new(Vector3.zero, fib(r + 1, GYRO_K, 0))
+end
+
+-- Heart / Star با موقعیت قابل تنظیم: zc = -1.2 جلو | 0 وسط | +1.2 پشت
+local function heartPos(i, n, t, S, zc)
+    local a = (i / n) * TAU
+    local x = 16 * sin(a) ^ 3
+    local y = 13 * cos(a) - 5 * cos(2 * a) - 2 * cos(3 * a) - cos(4 * a)
+    local k = S / 16 * (1 + 0.08 * sin(t * 4))
+    local layer = (i % 3) - 1
+    return Vector3.new(x * k, y * k + S * 0.35, zc * S + layer * S * 0.08)
+end
+
+local function starPos(i, n, t, S, zc)
+    local u = ((i - 1) / n) * 5
+    local e = math.min(floor(u), 4)
+    local f = u - e
+    local v = STAR[e + 1]:Lerp(STAR[e + 2], f)
+    local p = CFrame.Angles(0, 0, t * 0.5):VectorToWorldSpace(Vector3.new(v.X, v.Y, 0)) * S
+    return p + Vector3.new(0, S * 0.3, zc * S)
+end
+
+-- Infinity ایستاده (برای Front / Back): zc = -1.2 جلو | +1.2 پشت
+local function infinityPos(i, n, t, S, zc)
+    local a = (i / n) * TAU + t
+    local d = 1 + sin(a) ^ 2
+    local k = S * 1.6
+    return Vector3.new(cos(a) / d * k, sin(a) * cos(a) / d * k + S * 0.3, zc * S + sin(a * 2 + t * 2) * 0.1 * k)
+end
+
+local Modes = {
+    { name = "🌐 Sphere", fn = function(i, n, t, S)
+        return fib(i, n, t) * S
+    end },
+
+    { name = "❤️ Heart (Front)", follow = true, fn = function(i, n, t, S) return heartPos(i, n, t, S, -1.2) end },
+    { name = "❤️ Heart (Center)", follow = true, fn = function(i, n, t, S) return heartPos(i, n, t, S, 0) end },
+    { name = "❤️ Heart (Back)", follow = true, fn = function(i, n, t, S) return heartPos(i, n, t, S, 1.2) end },
+
+    { name = "💍 Ring", fn = function(i, n, t, S)
+        local a = (i / n) * TAU + t
+        return Vector3.new(cos(a), sin(t * 2 + i) * 0.04, sin(a)) * S
+    end },
+
+    { name = "🌪️ Tornado", fn = function(i, n, t, S)
+        local u = i / n
+        local a = u * TAU * 7 + t * 3
+        local r = S * (0.2 + 0.9 * u)
+        return Vector3.new(cos(a) * r, (u * 2 - 0.4) * S, sin(a) * r)
+    end },
+
+    { name = "🧬 DNA Helix", fn = function(i, n, t, S)
+        local strand = i % 2
+        local u = floor((i - 1) / 2) / math.max(1, n / 2)
+        local a = u * TAU * 3 + t * 1.5 + strand * math.pi
+        local r = S * 0.5
+        return Vector3.new(cos(a) * r, (u - 0.5) * S * 2.2, sin(a) * r)
+    end },
+
+    { name = "🌌 Galaxy", fn = function(i, n, t, S)
+        local arm = i % 3
+        local u = i / n
+        local r = (0.08 + u ^ 0.8) * S * 1.7
+        local a = arm * TAU / 3 + u * 5 + t * 0.8
+        return Vector3.new(cos(a) * r, sin(i * 7.3) * S * 0.12 * (1 - u), sin(a) * r)
+    end },
+
+    { name = "🪐 Saturn", fn = function(i, n, t, S)
+        local np = floor(n * 0.4)
+        if i <= np then
+            return fib(i, math.max(np, 1), t * 0.7) * S * 0.45
+        end
+        local j, m = i - np, math.max(n - np, 1)
+        local band = j % 3
+        local a = (j / m) * TAU + t * 0.8 + band
+        local p = Vector3.new(cos(a), 0, sin(a)) * S * (0.9 + band * 0.18)
+        return CFrame.Angles(0, 0, 0.45):VectorToWorldSpace(p)
+    end },
+
+    { name = "🕊️ Wings", follow = true, fn = function(i, n, t, S)
+        local side = (i % 2 == 0) and 1 or -1
+        local k, m = ceil(i / 2), math.max(ceil(n / 2), 1)
+        local s = k / m
+        local row = k % 3
+        local flap = sin(t * 3) * 0.35 * s
+        local x = side * (0.6 + s * 2.4) * S * 0.5
+        local y = (sin(s * math.pi) * 1.1 - row * 0.28 + 0.2 + flap) * S * 0.5
+        local z = (0.5 + s * 0.3) * S * 0.3
+        return Vector3.new(x, y, z)
+    end },
+
+    { name = "♾️ Infinity (Front)", follow = true, fn = function(i, n, t, S) return infinityPos(i, n, t, S, -1.2) end },
+
+    -- Center: ∞ افقی که دور خود پلیر می‌چرخه (همون حالت قبلی)
+    { name = "♾️ Infinity (Center)", fn = function(i, n, t, S)
+        local a = (i / n) * TAU + t
+        local d = 1 + sin(a) ^ 2
+        return Vector3.new(cos(a) / d, sin(a * 2 + t * 2) * 0.1, sin(a) * cos(a) / d) * S * 1.6
+    end },
+
+    { name = "♾️ Infinity (Back)", follow = true, fn = function(i, n, t, S) return infinityPos(i, n, t, S, 1.2) end },
+
+    { name = "⚛️ Atom", fn = function(i, n, t, S)
+        local nuc = floor(n * 0.2)
+        if i <= nuc then
+            return fib(i, math.max(nuc, 1), t * 2) * S * 0.25
+        end
+        local j = (i - nuc)
+        local orbit = j % 3
+        local a = (j / math.max(n - nuc, 1)) * TAU * 2 + t * (1 + orbit * 0.3)
+        local rot = CFrame.Angles(0, orbit * math.pi / 3, math.rad(60))
+        return rot:VectorToWorldSpace(Vector3.new(cos(a), 0, sin(a)) * S)
+    end },
+
+    -- ===================== مودهای ۱۱ تا ۲۰ =====================
+
+    { name = "🔷 Cube", fn = function(i, n, t, S)
+        local u = ((i - 1) / n) * 12
+        local e = math.min(floor(u), 11)
+        local f = u - e
+        local ed = CUBE_EDGES[e + 1]
+        local p = ed[1]:Lerp(ed[2], f)
+        return CFrame.Angles(t * 0.7, t, t * 0.3):VectorToWorldSpace(p) * S * 0.7
+    end },
+
+    { name = "🌊 Wave Grid", fn = function(i, n, t, S)
+        local g = math.max(ceil(sqrt(n)), 2)
+        local gx, gz = (i - 1) % g, floor((i - 1) / g)
+        local x = (gx / (g - 1) - 0.5) * 2 * S
+        local z = (gz / (g - 1) - 0.5) * 2 * S
+        local y = sin(x / S * 4 + t * 3) * cos(z / S * 4 + t * 2) * S * 0.25
+        return Vector3.new(x, y, z)
+    end },
+
+    { name = "🌹 Rose", fn = function(i, n, t, S)
+        local a = (i / n) * TAU
+        local r = cos(4 * a)
+        local p = Vector3.new(cos(a) * r, sin(a * 3 + t * 2) * 0.15, sin(a) * r) * S
+        return CFrame.Angles(0, t * 0.5, 0):VectorToWorldSpace(p)
+    end },
+
+    { name = "🍩 Torus", fn = function(i, n, t, S)
+        local u = (i / n) * TAU + t * 0.4
+        local v = i * PHI + t * 2
+        local R, r = S, S * 0.35
+        return Vector3.new((R + r * cos(v)) * cos(u), r * sin(v), (R + r * cos(v)) * sin(u))
+    end },
+
+    { name = "🔮 Gyro Sphere", fn = function(i, n, t, S)
+        -- ۷ حلقه‌ی کروی با محورهای مختلف؛ هر حلقه با سرعت و جهت خودش می‌چرخه
+        -- و کل مجموعه هم آروم دور خودش تاب می‌خوره
+        local K = GYRO_K
+        local ring = (i - 1) % K
+        local m = math.max(ceil(n / K), 1)
+        local dir = (ring % 2 == 0) and 1 or -1
+        local a = (floor((i - 1) / K) / m) * TAU + t * dir * (1 + ring * 0.35)
+        local rad = S * (1 + 0.06 * sin(t * 2 + ring))
+        local p = GYRO_FRAMES[ring]:VectorToWorldSpace(Vector3.new(cos(a), sin(a), 0)) * rad
+        return CFrame.Angles(t * 0.25, t * 0.35, 0):VectorToWorldSpace(p)
+    end },
+
+    { name = "🔺 Pyramid", fn = function(i, n, t, S)
+        local u = ((i - 1) / n) * 8
+        local e = math.min(floor(u), 7)
+        local f = u - e
+        local a, b
+        if e < 4 then
+            a, b = PYR_BASE[e + 1], PYR_BASE[(e + 1) % 4 + 1]
+        else
+            a, b = PYR_BASE[e - 3], PYR_TOP
+        end
+        return CFrame.Angles(0, t, 0):VectorToWorldSpace(a:Lerp(b, f)) * S * 0.8
+    end },
+
+    { name = "⭐ Star (Front)", follow = true, fn = function(i, n, t, S) return starPos(i, n, t, S, -1.2) end },
+    { name = "⭐ Star (Center)", follow = true, fn = function(i, n, t, S) return starPos(i, n, t, S, 0) end },
+    { name = "⭐ Star (Back)", follow = true, fn = function(i, n, t, S) return starPos(i, n, t, S, 1.2) end },
+
+    { name = "🌀 Spirograph", fn = function(i, n, t, S)
+        local a = (i / n) * TAU * 3
+        local R, r, d = 5, 3, 5
+        local k = (R - r) / r
+        local x = (R - r) * cos(a) + d * cos(k * a)
+        local z = (R - r) * sin(a) - d * sin(k * a)
+        local y = sin(a * 2 + t * 2) * 1.2
+        return CFrame.Angles(0, t * 0.6, 0):VectorToWorldSpace(Vector3.new(x, y, z)) * (S / 7)
+    end },
+
+    { name = "☀️ Solar System", fn = function(i, n, t, S)
+        if i <= 6 then return fib(i, 6, t * 2) * S * 0.12 end
+        local j = i - 6
+        local ring = (j % 5) + 1
+        local m = math.max(ceil((n - 6) / 5), 1)
+        local a = (floor(j / 5) / m) * TAU + t * (2 / ring)
+        local p = Vector3.new(cos(a), 0, sin(a)) * S * (0.3 + 0.22 * ring)
+        return CFrame.Angles(ring * 0.08, 0, ring * 0.05):VectorToWorldSpace(p)
+    end },
+
+    { name = "🕳️ Black Hole", fn = function(i, n, t, S)
+        local nd = math.max(floor(n * 0.8), 1)
+        if i <= nd then
+            local u = i / nd
+            local r = S * (0.15 + u ^ 0.7)
+            local a = u * TAU * 8 + t * 2
+            return Vector3.new(cos(a) * r, sin(i) * S * 0.03, sin(a) * r)
+        end
+        local j, m = i - nd, math.max(n - nd, 1)
+        local side = (j % 2 == 0) and 1 or -1
+        local h = (j / m) * S * 1.6
+        local a = j * PHI + t * 4
+        local w = S * 0.08 * (1 - j / m * 0.5)
+        return Vector3.new(cos(a) * w, side * h, sin(a) * w)
+    end },
+}
+
+---------------------------------------------------------------------
+-- PART MANAGEMENT
+---------------------------------------------------------------------
+local Parts = {}
+local Data = {}
+local clock = 0
+
+local function claim(p)
+    Data[p] = { cc = p.CanCollide }
+    p.CanCollide = false
+end
+
+local function release(p)
+    local d = Data[p]
+    if not d then return end
+    if p.Parent then p.CanCollide = d.cc end
+    Data[p] = nil
+end
+
+local function releaseAll()
+    for _, p in ipairs(Parts) do release(p) end
+    table.clear(Parts)
+end
+
+local updateStatus -- تعریفش بعد از ساخت GUI میاد
+
+-- آیا ما NetworkOwner این پارت هستیم؟
+local function isOwner(p)
+    if isnetworkowner then
+        local ok, r = pcall(isnetworkowner, p)
+        if ok then return r end
+    end
+    return p.ReceiveAge == 0
+end
+
+local function eligible(p, rpos, radius)
+    if not p.Parent or p.Anchored then return false end
+    if (p.Position - rpos).Magnitude > radius then return false end
+    if p.Size.Magnitude > 80 then return false end
+    local rp = p.AssemblyRootPart
+    if rp and rp.Anchored then return false end
+    local m = p:FindFirstAncestorOfClass("Model")
+    if m and m:FindFirstChildOfClass("Humanoid") then return false end
+    return true
+end
+
+local function getRoot()
+    local c = LocalPlayer.Character
+    return c and c:FindFirstChild("HumanoidRootPart")
+end
+
+local function setSim()
+    local r = State.SimRadius
+    pcall(function()
+        if sethiddenproperty then
+            sethiddenproperty(LocalPlayer, "SimulationRadius", r)
+            sethiddenproperty(LocalPlayer, "MaximumSimulationRadius", r)
+        end
+    end)
+    if setsimulationradius then pcall(setsimulationradius, r, r) end
+end
+
+local function refresh()
+    local root = getRoot()
+    if not root then return end
+    local rpos, radius = root.Position, State.SimRadius
+
+    local cap = State.MaxParts
+    -- فیکس باگ جابه‌جایی: جای Part ها (ایندکس‌ها) ثابت می‌مونه. اگه Part ای
+    -- از لیست خارج بشه، فقط همون خونه خالی می‌شه و بقیه شیفت نمی‌خورن
+    local keep, newList, holes = {}, {}, {}
+    local keepCount = 0
+    for idx, p in ipairs(Parts) do
+        if eligible(p, rpos, radius) and isOwner(p) then
+            keep[p] = true
+            newList[idx] = p
+            keepCount += 1
+            p.CanCollide = false
+        else
+            release(p)
+            newList[idx] = false
+            holes[#holes + 1] = idx
+        end
+    end
+
+    local total, ownedCount = keepCount, keepCount
+    do
+        local fresh = {}
+        for _, p in ipairs(Workspace:GetDescendants()) do
+            if not keep[p] and p:IsA("BasePart") and eligible(p, rpos, radius) then
+                total += 1
+                -- فقط پارت‌هایی که NetworkOwner‌شون هستیم وارد Orbit می‌شن
+                if isOwner(p) then
+                    ownedCount += 1
+                    fresh[#fresh + 1] = { p, (p.Position - rpos).Magnitude }
+                end
+            end
+        end
+        table.sort(fresh, function(a, b) return a[2] < b[2] end)
+        local hi = 1
+        for _, e in ipairs(fresh) do
+            if hi <= #holes then
+                claim(e[1])
+                newList[holes[hi]] = e[1] -- اول خونه‌های خالی پر می‌شن
+                hi += 1
+            elseif #newList < cap then
+                claim(e[1])
+                newList[#newList + 1] = e[1]
+            else
+                break
+            end
+        end
+        -- خونه‌های خالی باقی‌مونده: آخرین Part جاش میاد (فقط یه خونه تغییر می‌کنه)
+        for h = #holes, hi, -1 do
+            local idx, last = holes[h], #newList
+            if idx ~= last then newList[idx] = newList[last] end
+            newList[last] = nil
+        end
+    end
+    Parts = newList
+    State.Total, State.Owned = total, ownedCount
+    if updateStatus then updateStatus() end
+end
+
+---------------------------------------------------------------------
+-- MAIN LOOP
+---------------------------------------------------------------------
+local acc = 0
+local loop = RunService.Heartbeat:Connect(function(dt)
+    if not State.Enabled then return end
+    local root = getRoot()
+    if not root then return end
+
+    clock += math.min(dt, 0.1) * State.Speed
+    acc += dt
+
+    if acc >= 1 then
+        acc = 0
+        pcall(refresh)
+        setSim()
+    end
+
+    local n = #Parts
+    if n == 0 then return end
+
+    local mode = Modes[State.Mode]
+    local center = root.Position + Vector3.new(0, 3, 0)
+    local rcf = root.CFrame
+    local S = State.Radius
+    local speed = State.Speed
+    local rootVel = root.AssemblyLinearVelocity
+
+    -- فیکس باگ Speed: قبلاً Part ها فقط به سمت هدف کشیده می‌شدن و با بالا رفتن
+    -- سرعت، از هدف عقب می‌موندن و شکل کش می‌اومد. الان سرعت خود هدف هم
+    -- (Feed-forward) به Part داده می‌شه تا عقب نمونن.
+    local H = 0.01
+    local gain = math.min(14 + speed * 2, 60)
+    local maxV = 250 + S * speed * 15 + rootVel.Magnitude
+
+    for i = 1, n do
+        local p = Parts[i]
+        if p and p.Parent then
+            local off0 = mode.fn(i, n, clock, S)
+            local off1 = mode.fn(i, n, clock + H, S)
+            if mode.follow then
+                off0 = rcf:VectorToWorldSpace(off0)
+                off1 = rcf:VectorToWorldSpace(off1)
+            end
+            local targetVel = (off1 - off0) / H * speed + rootVel
+            local v = (center + off0 - p.Position) * gain + targetVel
+            if v.Magnitude > maxV then v = v.Unit * maxV end
+            p.AssemblyLinearVelocity = v
+            p.AssemblyAngularVelocity = Vector3.zero -- بدون Spin
+        end
+    end
+end)
+
+---------------------------------------------------------------------
+-- GUI
+---------------------------------------------------------------------
+local function new(class, props, parent)
+    local o = Instance.new(class)
+    for k, v in pairs(props) do o[k] = v end
+    if parent then o.Parent = parent end
+    return o
+end
+
+local function corner(o, r) new("UICorner", { CornerRadius = UDim.new(0, r or 8) }, o) end
+
+local activeSlider -- وقتی اسلایدر درگ می‌شه، پنل جابه‌جا نشه
+
+local function makeDraggable(targetFrame)
+    local uis = game:GetService("UserInputService")
+    local tweenService = game:GetService("TweenService")
+
+    local dragging, dragInput, dragStart, startPos
+
+    targetFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = targetFrame.Position
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    targetFrame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    return uis.InputChanged:Connect(function(input)
+        if input == dragInput and dragging and not activeSlider then
+            local delta = input.Position - dragStart
+            local newPos = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+            tweenService:Create(targetFrame, TweenInfo.new(0.15), {Position = newPos}):Play()
+        end
+    end)
+end
+
+local C = {
+    bg = Color3.fromRGB(24, 24, 32),
+    bar = Color3.fromRGB(34, 34, 46),
+    item = Color3.fromRGB(44, 44, 60),
+    accent = Color3.fromRGB(120, 90, 255),
+    on = Color3.fromRGB(60, 200, 120),
+    off = Color3.fromRGB(210, 70, 80),
+    text = Color3.fromRGB(235, 235, 245),
+}
+
+local old = (gethui and gethui() or game:GetService("CoreGui")):FindFirstChild("OrbitMasterGui")
+if old then old:Destroy() end
+
+local gui = new("ScreenGui", { Name = "OrbitMasterGui", ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling })
+local okParent = pcall(function() gui.Parent = (gethui and gethui()) or game:GetService("CoreGui") end)
+if not okParent or not gui.Parent then gui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+local panel = new("Frame", {
+    AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.fromOffset(280, 326),
+    BackgroundColor3 = C.bg, BorderSizePixel = 0,
+}, gui)
+corner(panel, 12)
+new("UIStroke", { Color = C.accent, Thickness = 1.5, Transparency = 0.3 }, panel)
+
+local title = new("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = C.bar, BorderSizePixel = 0,
+    Font = Enum.Font.GothamBold, TextSize = 15, TextColor3 = C.text, Text = "Legendary C00LHACK Orbit V4",
+}, panel)
+corner(title, 12)
+
+local closeBtn = new("TextButton", {
+    Position = UDim2.new(1, -30, 0, 5), Size = UDim2.fromOffset(24, 24),
+    BackgroundColor3 = C.off, Text = "×", Font = Enum.Font.GothamBold, TextSize = 16,
+    TextColor3 = C.text, AutoButtonColor = true,
+}, panel)
+corner(closeBtn, 6)
+
+-- Orbit ON/OFF
+local orbitBtn = new("TextButton", {
+    Position = UDim2.fromOffset(10, 44), Size = UDim2.new(1, -20, 0, 40),
+    BackgroundColor3 = C.off, Font = Enum.Font.GothamBold, TextSize = 16,
+    TextColor3 = C.text, Text = "Orbit  OFF",
+}, panel)
+corner(orbitBtn)
+
+-- Mode button + dropdown
+local modeBtn = new("TextButton", {
+    Position = UDim2.fromOffset(10, 92), Size = UDim2.new(1, -20, 0, 36),
+    BackgroundColor3 = C.item, Font = Enum.Font.GothamMedium, TextSize = 14,
+    TextColor3 = C.text, Text = "Mode: " .. Modes[1].name .. "  ▼",
+}, panel)
+corner(modeBtn)
+
+local list = new("ScrollingFrame", {
+    Position = UDim2.fromOffset(10, 132), Size = UDim2.new(1, -20, 0, 190),
+    BackgroundColor3 = C.bar, BorderSizePixel = 0, Visible = false, ZIndex = 20,
+    ScrollBarThickness = 4, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+}, panel)
+corner(list)
+new("UIListLayout", { Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder }, list)
+new("UIPadding", { PaddingTop = UDim.new(0, 4), PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 8), PaddingBottom = UDim.new(0, 4) }, list)
+
+-- فیکس باگ پنل: وقتی لیست مودها بازه، اسلایدرها و نوار وضعیت مخفی می‌شن
+-- تا از زیر لیست پیدا نباشن و کلیک هم بهشون نخوره
+local hideWhenOpen = {}
+local function setListOpen(open)
+    list.Visible = open
+    for _, o in ipairs(hideWhenOpen) do
+        o.Visible = not open
+    end
+end
+
+for idx, m in ipairs(Modes) do
+    local b = new("TextButton", {
+        Size = UDim2.new(1, 0, 0, 28), BackgroundColor3 = C.item, ZIndex = 21, LayoutOrder = idx,
+        Font = Enum.Font.Gotham, TextSize = 14, TextColor3 = C.text, Text = m.name,
+    }, list)
+    corner(b, 6)
+    b.MouseButton1Click:Connect(function()
+        State.Mode = idx
+        modeBtn.Text = "Mode: " .. m.name .. "  ▼"
+        setListOpen(false)
+    end)
+end
+
+modeBtn.MouseButton1Click:Connect(function() setListOpen(not list.Visible) end)
+
+-- Sliders (لگاریتمی برای رنج بزرگ + کادر تایپ مقدار)
+local function makeSlider(y, name, min, max, init, step, cb)
+    local holder = new("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(10, y), Size = UDim2.new(1, -20, 0, 44) }, panel)
+    table.insert(hideWhenOpen, holder)
+    local label = new("TextLabel", {
+        BackgroundTransparency = 1, Size = UDim2.new(0.58, 0, 0, 22), Font = Enum.Font.GothamMedium,
+        TextSize = 13, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left, Text = name,
+    }, holder)
+    local box = new("TextBox", {
+        AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Size = UDim2.new(0.4, 0, 0, 22),
+        BackgroundColor3 = C.item, BorderSizePixel = 0, Font = Enum.Font.GothamMedium, TextSize = 12,
+        TextColor3 = C.text, ClearTextOnFocus = false, Text = "", PlaceholderText = "value",
+    }, holder)
+    corner(box, 5)
+    local bar = new("Frame", { Position = UDim2.fromOffset(0, 30), Size = UDim2.new(1, 0, 0, 8), BackgroundColor3 = C.item, BorderSizePixel = 0 }, holder)
+    corner(bar, 4)
+    local fill = new("Frame", { Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = C.accent, BorderSizePixel = 0 }, bar)
+    corner(fill, 4)
+    local knob = new("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(16, 16), Position = UDim2.new(0, 0, 0.5, 0),
+        BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
+    }, bar)
+    corner(knob, 8)
+    local hit = new("TextButton", { BackgroundTransparency = 1, Text = "", Position = UDim2.fromOffset(0, 22), Size = UDim2.new(1, 0, 0, 22) }, holder)
+
+    local logMin, logMax = math.log(min), math.log(max)
+    local current = init
+
+    -- exact = true یعنی مقدار تایپ‌شده (بدون گرد کردن به step)
+    local function setValue(v, exact)
+        v = math.clamp(v, min, max)
+        if not exact then v = floor(v / step + 0.5) * step end
+        v = math.clamp(tonumber(string.format("%.3f", v)), min, max)
+        current = v
+        local a = (math.log(v) - logMin) / (logMax - logMin)
+        fill.Size = UDim2.new(a, 0, 1, 0)
+        knob.Position = UDim2.new(a, 0, 0.5, 0)
+        box.Text = tostring(v)
+        cb(v)
+    end
+    local function fromX(x)
+        local a = math.clamp((x - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+        setValue(math.exp(logMin + (logMax - logMin) * a))
+    end
+    hit.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            activeSlider = fromX
+            fromX(i.Position.X)
+        end
+    end)
+    box.FocusLost:Connect(function()
+        local num = tonumber(box.Text)
+        if num then setValue(num, true) else box.Text = tostring(current) end
+    end)
+    setValue(init, true)
+end
+
+makeSlider(140, "SimulationRadius", 10, 500000, State.SimRadius, 1, function(v) State.SimRadius = v; setSim() end)
+makeSlider(188, "Radius", 2, 500, State.Radius, 1, function(v) State.Radius = v end)
+makeSlider(236, "Speed", 0.1, 50, State.Speed, 0.1, function(v) State.Speed = v end)
+
+local statusLbl = new("TextLabel", {
+    Position = UDim2.fromOffset(10, 294), Size = UDim2.new(1, -20, 0, 20),
+    BackgroundTransparency = 1, Font = Enum.Font.Gotham, TextSize = 12,
+    TextColor3 = C.text, Text = "NetworkOwner: — / —",
+}, panel)
+table.insert(hideWhenOpen, statusLbl)
+
+updateStatus = function()
+    local owned, total = State.Owned or 0, State.Total or 0
+    statusLbl.Text = string.format("NetworkOwner: %d / %d  |  Orbiting: %d", owned, total, #Parts)
+    statusLbl.TextColor3 = (owned > 0 or total == 0) and C.on or C.off
+end
+
+orbitBtn.MouseButton1Click:Connect(function()
+    State.Enabled = not State.Enabled
+    orbitBtn.Text = "Orbit  " .. (State.Enabled and "ON" or "OFF")
+    orbitBtn.BackgroundColor3 = State.Enabled and C.on or C.off
+    if State.Enabled then
+        setSim()
+        pcall(refresh)
+    else
+        releaseAll()
+    end
+end)
+
+-- Drag panel (سیستم درگ خودت) + slider input
+local dragConn = makeDraggable(panel)
+
+local inChanged = UIS.InputChanged:Connect(function(i)
+    if i.UserInputType ~= Enum.UserInputType.MouseMovement and i.UserInputType ~= Enum.UserInputType.Touch then return end
+    if activeSlider then activeSlider(i.Position.X) end
+end)
+local inEnded = UIS.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+        activeSlider = nil
+    end
+end)
+
+---------------------------------------------------------------------
+-- CLEANUP
+---------------------------------------------------------------------
+local function cleanup()
+    State.Enabled = false
+    pcall(function() loop:Disconnect() end)
+    pcall(function() inChanged:Disconnect() end)
+    pcall(function() inEnded:Disconnect() end)
+    pcall(function() dragConn:Disconnect() end)
+    releaseAll()
+    pcall(function() gui:Destroy() end)
+    env.__OrbitCleanup = nil
+end
+env.__OrbitCleanup = cleanup
+closeBtn.MouseButton1Click:Connect(cleanup)
