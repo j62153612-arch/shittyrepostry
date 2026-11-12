@@ -1,0 +1,239 @@
+local Players=game:GetService("Players")
+
+local ReplicatedStorage=game:GetService("ReplicatedStorage")
+
+local player=Players.LocalPlayer
+
+local char=player.Character or player.CharacterAdded:Wait()
+
+local hrp=char:WaitForChild("HumanoidRootPart")
+
+local tool
+
+for _,v in ipairs(player:GetDescendants()) do if v.Name=="SyncAPI" then tool=v.Parent end end
+
+for _,v in ipairs(ReplicatedStorage:GetDescendants()) do if v.Name=="SyncAPI" then tool=v.Parent end end
+
+if not tool then return end
+
+local remote=tool.SyncAPI.ServerEndpoint
+
+local function invoke(a) remote:InvokeServer(unpack(a)) end
+
+local function CreatePart(cf) invoke({"CreatePart","Normal",cf,workspace}) end
+
+local function MovePart(p,cf) invoke({"SyncMove",{{Part=p,CFrame=cf}}}) end
+
+local function SetAnchor(p,b) invoke({"SyncAnchor",{{Part=p,Anchored=b}}}) end
+
+local function AddMesh(p) invoke({"CreateMeshes",{{Part=p}}}) end
+
+local function SetMesh(p,id) invoke({"SyncMesh",{{Part=p,MeshId="rbxassetid://"..id}}}) end
+
+local function MeshResize(p,s) invoke({"SyncMesh",{{Part=p,Scale=s}}}) end
+
+local function SetTrans(p,t) invoke({"SyncMaterial",{{Part=p,Transparency=t}}}) end
+
+local function delete(p)
+
+	if not p or not p.Parent then return end	remote:InvokeServer("Remove",{p})
+
+	task.wait()
+
+	remote:InvokeServer("Remove",{p})
+
+end
+
+CreatePart(hrp.CFrame*CFrame.new(0,45,0))
+
+local pat
+
+for _,v in ipairs(workspace:GetDescendants()) do
+
+	if v:IsA("BasePart") and (v.Position-(hrp.Position+Vector3.new(0,45,0))).Magnitude<8 then
+
+		pat=v break
+
+	end
+
+end
+
+if not pat then return end
+
+AddMesh(pat)
+
+SetMesh(pat,"6002059830")
+
+MeshResize(pat,Vector3.new(16,16,16))
+
+SetAnchor(pat,true)
+
+SetTrans(pat,0.25)
+
+local SUCK_RADIUS=180
+
+local sucking={}
+
+local locked={}
+
+local function isProtected(v)
+
+	if v.Name=="Baseplate" then return true end
+
+	if v.Anchored and v.Size.Magnitude>300 then return true end
+
+	if v:IsDescendantOf(char) then return true end
+
+	return false
+
+end
+
+local function scanParts()
+
+	local list={}
+
+	for _,plr in ipairs(Players:GetPlayers()) do
+
+		if plr~=player and plr.Character then
+
+			local r=plr.Character:FindFirstChild("HumanoidRootPart")
+
+			if r and not locked[r] then
+
+				locked[r]=true
+
+				list[#list+1]=r
+
+			end
+
+		end
+
+	end
+
+	for _,v in ipairs(workspace:GetDescendants()) do
+
+		if v:IsA("BasePart")
+
+		and v~=pat
+
+		and not locked[v]
+
+		and not isProtected(v)
+
+		and (v.Position-pat.Position).Magnitude<=SUCK_RADIUS then
+
+			locked[v]=true
+
+			list[#list+1]=v
+
+		end
+
+	end
+
+	return list
+
+end
+
+local function TornadoSuck(part)
+
+	if sucking[part] or not part or not part.Parent then return end
+
+	if isProtected(part) then return end
+
+	sucking[part]=true
+
+	SetAnchor(part,true)
+
+	local speed=15
+
+	task.spawn(function()
+
+		while speed<2500 do
+
+			speed+=20
+
+			task.wait(0.02)
+
+		end
+
+	end)
+
+	local start=tick()
+
+	while part and part.Parent do
+
+		if tick()-start>4 then
+
+			delete(part)
+
+			break
+
+		end
+
+		local dist=(part.Position-pat.Position).Magnitude
+
+		if part.Name=="HumanoidRootPart" and dist<=20 then
+
+			if part.Parent then delete(part.Parent) end
+
+			break
+
+		elseif dist<=12 then
+
+			delete(part)
+
+			break
+
+		end
+
+		local dir=(pat.Position-part.Position).Unit
+
+		local swirl=CFrame.Angles(0,math.rad(35),0)
+
+		MovePart(part,CFrame.new(part.Position+dir*speed)*swirl)
+
+		task.wait(0.02)
+
+	end
+
+	sucking[part]=nil
+
+end
+
+task.spawn(function()
+
+	while pat and pat.Parent do
+
+		local d=(hrp.Position-pat.Position)
+
+		if d.Magnitude>6 then
+
+			MovePart(pat,CFrame.new(pat.Position+d.Unit*85))
+
+		end
+
+		task.wait(0.03)
+
+	end
+
+end)
+
+task.spawn(function()
+
+	while pat and pat.Parent do
+
+		for _,p in ipairs(scanParts()) do
+
+			task.spawn(function()
+
+				TornadoSuck(p)
+
+			end)
+
+		end
+
+		task.wait(0.12)
+
+	end
+
+end)
