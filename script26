@@ -214,7 +214,7 @@ local spawnCFrame =
 
     hrp.CFrame
 
-    * CFrame.new(7, -2, -60)
+    * CFrame.new(7, -4, -60)
 
     * CFrame.Angles(math.rad(0), 160, 0)
 
