@@ -1,0 +1,787 @@
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+    local RequestCommandSilent = ReplicatedStorage:WaitForChild("HDAdminHDClient").Signals.RequestCommandSilent
+
+    RequestCommandSilent:InvokeServer(";time 5.7")
+
+    
+
+local player = game.Players.LocalPlayer
+
+    local char = player.Character
+
+    local tool
+
+    for i,v in player:GetDescendants() do
+
+        if v.Name == "SyncAPI" then
+
+            tool = v.Parent
+
+        end
+
+    end
+
+    for i,v in game.ReplicatedStorage:GetDescendants() do
+
+        if v.Name == "SyncAPI" then
+
+            tool = v.Parent
+
+        end
+
+    end
+
+    --craaa
+
+    remote = tool.SyncAPI.ServerEndpoint
+
+    function _(args)
+
+        remote:InvokeServer(unpack(args))
+
+    end
+
+    
+
+    
+
+    local function invoke(args)
+
+	remote:InvokeServer(unpack(args))end
+
+local function applyRedLight(part)
+
+	if not part or not part:IsA("BasePart") then return end
+
+	local createArgs = {
+
+		"CreateLights",
+
+		{
+
+			{
+
+				Part = part,
+
+				LightType = "PointLight"
+
+			}
+
+		}
+
+	}
+
+	local syncArgs = {
+
+		"SyncLighting",
+
+		{
+
+			{
+
+				Part = part,
+
+				LightType = "PointLight",
+
+				Color = Color3.fromRGB(255, 0, 0),
+
+				Range = 60,
+
+				Brightness = 2
+
+			}
+
+		}
+
+	}
+
+	invoke(createArgs)
+
+	invoke(syncArgs)
+
+end
+
+    
+
+    
+
+    function SetCollision(part,boolean)
+
+        local args = {
+
+            [1] = "SyncCollision",
+
+            [2] = {
+
+                [1] = {
+
+                    ["Part"] = part,
+
+                    ["CanCollide"] = boolean
+
+                }
+
+            }
+
+        }
+
+        _(args)
+
+    end
+
+    function SetAnchor(boolean,part)
+
+        local args = {
+
+            [1] = "SyncAnchor",
+
+            [2] = {
+
+                [1] = {
+
+                    ["Part"] = part,
+
+                    ["Anchored"] = boolean
+
+                }
+
+            }
+
+        }
+
+        _(args)
+
+    end
+
+		local function delete(part)
+
+			local args = {
+
+				[1] = "Remove",
+
+				[2] = {
+
+					[1] = part
+
+				}
+
+			}
+
+			remote:InvokeServer(unpack(args))
+
+		end
+
+    function CreatePart(cf,parent)
+
+        local args = {
+
+            [1] = "CreatePart",
+
+            [2] = "Normal",
+
+            [3] = cf,
+
+            [4] = parent
+
+        }
+
+        _(args)
+
+    end
+
+    function MovePart(part,cf)
+
+        local args = {
+
+            [1] = "SyncMove",
+
+            [2] = {
+
+                [1] = {
+
+                    ["Part"] = part,
+
+                    ["CFrame"] = cf
+
+                }
+
+            }
+
+        }
+
+        _(args)
+
+    end
+
+    function Resize(part,size,cf)
+
+        local args = {
+
+            [1] = "SyncResize",
+
+            [2] = {
+
+                [1] = {
+
+                    ["Part"] = part,
+
+                    ["CFrame"] = cf,
+
+                    ["Size"] = size
+
+                }
+
+            }
+
+        }
+
+        _(args)
+
+    end
+
+    function AddMesh(part)
+
+        local args = {
+
+            [1] = "CreateMeshes",
+
+            [2] = {
+
+                [1] = {
+
+                    ["Part"] = part
+
+                }
+
+            }
+
+        }
+
+        _(args)
+
+    end
+
+    function SetMesh(part,meshid)
+
+        local args = {
+
+            [1] = "SyncMesh",
+
+            [2] = {
+
+                [1] = {
+
+                    ["Part"] = part,
+
+                    ["MeshId"] = "rbxassetid://"..meshid
+
+                }
+
+            }
+
+        }
+
+        _(args)
+
+    end
+
+    function SetTexture(part, texid)
+
+        local args = {
+
+            [1] = "SyncMesh",
+
+            [2] = {
+
+                [1] = {
+
+                    ["Part"] = part,
+
+                    ["TextureId"] = "rbxassetid://"..texid
+
+                }
+
+            }
+
+        }
+
+        _(args)
+
+    end
+
+    function SetName(part, stringg)
+
+        local args = {
+
+            [1] = "SetName",
+
+            [2] = {
+
+                [1] = part
+
+            },
+
+            [3] = stringg
+
+        }
+
+        _(args)
+
+    end
+
+    function MeshResize(part,size)
+
+        local args = {
+
+            [1] = "SyncMesh",
+
+            [2] = {
+
+                [1] = {
+
+                    ["Part"] = part,
+
+                    ["Scale"] = size
+
+                }
+
+            }
+
+        }
+
+        _(args)
+
+    end
+
+    function Weld(part1, part2,lead)
+
+        local args = {
+
+            [1] = "CreateWelds",
+
+            [2] = {
+
+                [1] = part1,
+
+                [2] = part2
+
+            },
+
+            [3] = lead
+
+        }
+
+        _(args)
+
+    end
+
+    function SetLocked(part,boolean)
+
+        local args = {
+
+            [1] = "SetLocked",
+
+            [2] = {
+
+                [1] = part
+
+            },
+
+            [3] = boolean
+
+        }
+
+        _(args)
+
+    end
+
+    function SetTrans(part,int)
+
+        local args = {
+
+            [1] = "SyncMaterial",
+
+            [2] = {
+
+                [1] = {
+
+                    ["Part"] = part,
+
+                    ["Transparency"] = int
+
+                }
+
+            }
+
+        }
+
+        _(args)
+
+    end
+
+    function CreateSpotlight(part)
+
+        local args = {
+
+            [1] = "CreateLights",
+
+            [2] = {
+
+                [1] = {
+
+                    ["Part"] = part,
+
+                    ["LightType"] = "SpotLight"
+
+                }
+
+            }
+
+        }
+
+        _(args)
+
+    end
+
+    function SyncLighting(part,brightness)
+
+        local args = {
+
+            [1] = "SyncLighting",
+
+            [2] = {
+
+                [1] = {
+
+                    ["Part"] = part,
+
+                    ["LightType"] = "SpotLight",
+
+                    ["Brightness"] = brightness
+
+                }
+
+            }
+
+        }
+
+        _(args)
+
+    end
+
+    function Color(part,color)
+
+        local args = {
+
+            [1] = "SyncColor",
+
+            [2] = {
+
+                [1] = {
+
+                    ["Part"] = part,
+
+                    ["Color"] = color --[[Color3]],
+
+                    ["UnionColoring"] = false
+
+                }
+
+            }
+
+        }
+
+        _(args)
+
+    end
+
+    
+
+    
+
+    function SpawnDecal(part,side)
+
+        local args = {
+
+            [1] = "CreateTextures",
+
+            [2] = {
+
+                [1] = {
+
+                    ["Part"] = part,
+
+                    ["Face"] = side,
+
+                    ["TextureType"] = "Decal"
+
+                }
+
+            }
+
+        }
+
+        _(args)
+
+    end
+
+    function AddDecal(part,asset,side)
+
+        local args = {
+
+            [1] = "SyncTexture",
+
+            [2] = {
+
+                [1] = {
+
+                    ["Part"] = part,
+
+                    ["Face"] = side,
+
+                    ["TextureType"] = "Decal",
+
+                    ["Texture"] = "rbxassetid://".. asset
+
+                }
+
+            }
+
+        }
+
+        _(args)
+
+    end
+
+    function Krab(id)
+
+        e = char.HumanoidRootPart.CFrame.x
+
+        f = char.HumanoidRootPart.CFrame.y
+
+        g = char.HumanoidRootPart.CFrame.z
+
+CreatePart(CFrame.new(math.floor(e), math.floor(f), math.floor(g)) + Vector3.new(0, 53, 0), workspace)
+
+        for i,v in game.Workspace:GetDescendants() do
+
+            if v:IsA("BasePart") and v.CFrame.x == math.floor(e) and v.CFrame.z == math.floor(g) then
+
+                --spawn(function()
+
+                SetName(v,"pat")
+
+                AddMesh(v)
+
+                --end)
+
+                --spawn(function()
+
+                SetMesh(v,"455783801")
+
+                SetTexture(v,id)
+
+                --end)
+
+                MeshResize(v,Vector3.new(0.7,0.7,0.7))
+
+                SetLocked(v,true)
+
+            end
+
+        end
+
+    end
+
+    Krab("106211613892663")
+
+    
+
+    local function getPatPart()
+
+	for _, v in workspace:GetDescendants() do
+
+		if v:IsA("BasePart") and v.Name == "pat" then
+
+			return v
+
+		end
+
+	end
+
+	return nil
+
+end
+
+local pat = getPatPart()
+
+if pat then
+
+	applyRedLight(pat)
+
+end
+
+    
+
+    RequestCommandSilent:InvokeServer(";music 7816195044 ;pitch 0.445 ;volume inf")
+
+wait(19)
+
+RequestCommandSilent:InvokeServer(";music 9046435309 ;volume inf")
+
+local function getTargetPart()
+
+	for _, v in workspace:GetDescendants() do
+
+		if v:IsA("BasePart") and v.Name == "pat" then
+
+			return v
+
+		end
+
+	end
+
+	return nil
+
+end
+
+local function getValidParts(targetPart)
+
+	local parts = {}
+
+	for _, v in workspace:GetDescendants() do
+
+		if v:IsA("BasePart")
+
+			and v:IsDescendantOf(workspace)
+
+			and v ~= targetPart
+
+			and v.Name ~= "Head"
+
+			and v.Name ~= "Torso"
+
+			and v.Name ~= "Baseplate"
+
+			and v.Name ~= "SpawnLocation"
+
+			and v.Size.X <= 60
+
+			and v.Size.Z <= 60
+
+		then
+
+			table.insert(parts, v)
+
+		end
+
+	end
+
+	return parts
+
+end
+
+local function movePartToward(part, targetCF)
+
+	local dir = (targetCF.Position - part.Position).Unit
+
+	local speed = 1
+
+	local maxSpeed = 1000
+
+	local acceleration = 4
+
+	task.spawn(function()
+
+		while speed < maxSpeed do
+
+			speed += acceleration
+
+			if speed > maxSpeed then speed = maxSpeed end
+
+			task.wait(0.1)
+
+		end
+
+	end)
+
+	local newCF = CFrame.new(part.Position + dir * speed)
+
+	MovePart(part, newCF)
+
+end
+
+task.spawn(function()
+
+	while true do
+
+		local target = getTargetPart()
+
+		if not target then task.wait(0.5) continue end
+
+		local parts = getValidParts(target)
+
+		if #parts == 0 then break end
+
+		local index = 1
+
+		while index <= #parts do
+
+			for i = 1, 1 do
+
+				local part = parts[index]
+
+				index += 1
+
+				if not part then break end
+
+				task.spawn(function()
+
+					while part and part:IsDescendantOf(workspace) do
+
+						local distance = (part.Position - target.Position).Magnitude
+
+						
+
+						if part.Name == "HumanoidRootPart" and distance <= 14 then
+
+							local parent = part.Parent
+
+							if parent then
+
+								delete(parent)
+
+							end
+
+							break
+
+						elseif distance <= 10 then
+
+							delete(part)
+
+							break
+
+						end
+
+						SetAnchor(true, part)
+
+						movePartToward(part, target.CFrame)
+
+						task.wait(0.05)
+
+					end
+
+				end)
+
+			end
+
+			task.wait(0.3)
+
+		end
+
+		task.wait(1)
+
+	end
+
+end)
