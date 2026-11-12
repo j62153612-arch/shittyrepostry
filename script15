@@ -1,0 +1,252 @@
+		local me = game.Players.LocalPlayer
+		local char = me.Character or me.CharacterAdded:Wait()
+	
+		local tool
+		for _, v in ipairs(me:GetDescendants()) do
+			if v.Name == "SyncAPI" then
+				tool = v.Parent
+				break
+			end
+		end
+		if not tool then
+			for _, v in ipairs(game.ReplicatedStorage:GetDescendants()) do
+				if v.Name == "SyncAPI" then
+					tool = v.Parent
+					break
+				end
+			end
+		end
+		if not tool then
+			warn("yo ur not have f3x")
+			return
+		end
+	
+		remote = tool.SyncAPI.ServerEndpoint
+	
+		function _(args)
+			spawn(function()
+				remote:InvokeServer(unpack(args))
+			end)
+		end
+	
+		function CreatePart(cf, parent)
+			local args = {
+				[1] = "CreatePart",
+				[2] = "Normal",
+				[3] = cf,
+				[4] = parent
+			}
+			return remote:InvokeServer(unpack(args))
+		end
+	
+		function Resize(part, size, cf)
+			local args = {
+				[1] = "SyncResize",
+				[2] = {
+					[1] = {
+						["Part"] = part,
+						["Size"] = size,
+						["CFrame"] = cf
+					}
+				}
+			}
+			_(args)
+		end
+	
+		function Color(part, color)
+			local args = {
+				[1] = "SyncColor",
+				[2] = {
+					[1] = {
+						["Part"] = part,
+						["Color"] = color,
+						["UnionColoring"] = false
+					}
+				}
+			}
+			_(args)
+		end
+	
+		function SetTrans(part, trans)
+			local args = {
+				[1] = "SyncMaterial",
+				[2] = {
+					[1] = {
+						["Part"] = part,
+						["Transparency"] = trans
+					}
+				}
+			}
+			_(args)
+		end
+	
+		function SetAnchor(part, boolean)
+			local args = {
+				[1] = "SyncAnchor",
+				[2] = {
+					[1] = {
+						["Part"] = part,
+						["Anchored"] = boolean
+					}
+				}
+			}
+			_(args)
+		end
+	
+		function SetCollision(part, bool)
+			local args = {
+				[1] = "SyncCollision",
+				[2] = {
+					[1] = {
+						["Part"] = part,
+						["CanCollide"] = bool
+					}
+				}
+			}
+			_(args)
+		end
+	
+		function CreateMeshes(part)
+			local args = {
+				[1] = "CreateMeshes",
+				[2] = {
+					[1] = {
+						["Part"] = part
+					}
+				}
+			}
+			_(args)
+		end
+	
+		function SyncMeshId(part, id)
+			local args = {
+				[1] = "SyncMesh",
+				[2] = {
+					[1] = {
+						["Part"] = part,
+						["MeshId"] = "rbxassetid://" .. id
+					}
+				}
+			}
+			_(args)
+		end
+	
+		function MeshResize(part, size)
+			local args = {
+				[1] = "SyncMesh",
+				[2] = {
+					[1] = {
+						["Part"] = part,
+						["Scale"] = size
+					}
+				}
+			}
+			_(args)
+		end
+	
+		function DestroyPart(part)
+			local args = {
+				[1] = "Remove",
+				[2] = { [1] = part }
+			}
+			_(args)
+		end
+	
+		local MaterialBatch = {}
+	
+		function AddTransparencyBatch(part, value)
+			table.insert(MaterialBatch, {
+				["Part"] = part,
+				["Transparency"] = value
+			})
+		end
+	
+		function SendMaterialBatch()
+			if #MaterialBatch == 0 then return end
+	
+			_({
+				[1] = "SyncMaterial",
+				[2] = MaterialBatch
+			})
+	
+			MaterialBatch = {}
+		end
+	
+		local Distance = 5
+		local orb
+	
+		game.ReplicatedStorage:WaitForChild("HDAdminHDClient").Signals.RequestCommandSilent:InvokeServer(";title me "..me.Name.." iOrb")
+	
+		function createorb()
+			local head = char:FindFirstChild("Head")
+			if not head then return end
+	
+			local ok, result = pcall(function()
+				return remote:InvokeServer("Clone", {head}, workspace)
+			end)
+			if not ok or not result then return end
+	
+			orb = type(result) == "table" and result[1] or result
+			if not orb or not orb.Parent then return end
+	
+			local cf = head.CFrame * CFrame.new(0, 5, -Distance)
+	
+			Color(orb, Color3.new(0, 0, 0))
+			SetAnchor(orb, true)
+			SetCollision(orb, false)
+			SyncMeshId(orb, "1185246")
+			MeshResize(orb, Vector3.new(1.5, 1.5, 1.5))
+		end
+	
+		createorb()
+	
+		local angle = 0
+		local speed = 3
+		local lastTrailTime = 0
+	
+		game:GetService("RunService").Heartbeat:Connect(function(dt)
+			if not char:FindFirstChild("Torso") then return end
+			if not orb or not orb.Parent then 
+				createorb() 
+				return 
+			end
+	
+			angle = angle + speed * dt
+	
+			local x = math.cos(angle) * Distance
+			local z = math.sin(angle) * Distance
+			local y = math.sin(angle * 2) * 1.5
+	
+			local newCF = char.Torso.CFrame * CFrame.new(x, y, z) * CFrame.Angles(math.sin(angle), math.abs(angle), math.sin(angle))
+	
+			_({
+				[1] = "SyncMove",
+				[2] = {
+					[1] = {
+						["Part"] = orb,
+						["CFrame"] = newCF
+					}
+				}
+			})
+	
+			if tick() - lastTrailTime >= 0.02 then
+				lastTrailTime = tick()
+				local trailCF = newCF * CFrame.new(0, -500, 0)
+	
+				local trail = CreatePart(trailCF, workspace)
+				if trail then
+					AddTransparencyBatch(trail, 0.4)
+					SendMaterialBatch()
+					Resize(trail, Vector3.new(0.4, 0.4, 0.4), newCF)
+					Color(trail, Color3.new(0, 0, 0))
+					SetAnchor(trail, true)
+					SetCollision(trail, false)
+	
+					task.delay(0.6, function()
+						DestroyPart(trail)
+					end)
+				end
+			end
+		end)
+	
+		game.ReplicatedStorage:WaitForChild("HDAdminHDClient").Signals.RequestCommandSilent:InvokeServer(";untitle")
