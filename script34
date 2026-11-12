@@ -1,0 +1,232 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local rq = ReplicatedStorage:WaitForChild("HDAdminHDClient").Signals.RequestCommandSilent
+rq:InvokeServer(";r15")
+task.wait(0.1)
+rq:InvokeServer(";removeaccessories")
+task.wait(0.1)
+rq:InvokeServer(";bundle me 38499587027735")
+task.wait(0.1)
+rq:InvokeServer(";size me 13.5")
+
+local ControllerGui = Instance.new("ScreenGui")
+local Frame = Instance.new("Frame")
+local UICorner = Instance.new("UICorner")
+local Title = Instance.new("TextLabel")
+local ButtonTemplate = Instance.new("TextButton")
+local UICorner_2 = Instance.new("UICorner")
+local ButtonTemplate_2 = Instance.new("TextButton")
+local UICorner_3 = Instance.new("UICorner")
+local ButtonTemplate_3 = Instance.new("TextButton")
+local UICorner_4 = Instance.new("UICorner")
+local ButtonTemplate_4 = Instance.new("TextButton")
+local UICorner_5 = Instance.new("UICorner")
+local ButtonTemplate_5 = Instance.new("TextButton")
+local UICorner_6 = Instance.new("UICorner")
+local Title_2 = Instance.new("TextLabel")
+local TextBox = Instance.new("TextBox")
+local UICorner_7 = Instance.new("UICorner")
+
+--Properties:
+
+ControllerGui.Name = "ControllerGui"
+ControllerGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+ControllerGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+Frame.Parent = ControllerGui
+Frame.Active = true
+Frame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+Frame.BorderColor3 = Color3.fromRGB(27, 42, 53)
+Frame.BorderSizePixel = 0
+Frame.Position = UDim2.new(0.0500000194, 0, 0.508745193, 0)
+Frame.Size = UDim2.new(0, 149, 0, 228)
+
+UICorner.Parent = Frame
+
+Title.Name = "Title"
+Title.Parent = Frame
+Title.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+Title.BackgroundTransparency = 1.000
+Title.BorderColor3 = Color3.fromRGB(27, 42, 53)
+Title.Position = UDim2.new(0, 5, 0, 0)
+Title.Size = UDim2.new(1, -10, 0, 25)
+Title.Font = Enum.Font.SourceSansBold
+Title.Text = "Monkey"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 14.000
+
+ButtonTemplate.Name = "ButtonTemplate"
+ButtonTemplate.Parent = Frame
+ButtonTemplate.BackgroundColor3 = Color3.fromRGB(0, 135, 203)
+ButtonTemplate.BorderColor3 = Color3.fromRGB(27, 42, 53)
+ButtonTemplate.Position = UDim2.new(0, 5, 0.720415592, -140)
+ButtonTemplate.Size = UDim2.new(0.999999702, -10, 0, 25)
+ButtonTemplate.Font = Enum.Font.SourceSans
+ButtonTemplate.Text = "Clean Parts"
+ButtonTemplate.TextColor3 = Color3.fromRGB(255, 255, 255)
+ButtonTemplate.TextSize = 14.000
+
+UICorner_2.Parent = ButtonTemplate
+
+ButtonTemplate_2.Name = "ButtonTemplate"
+ButtonTemplate_2.Parent = Frame
+ButtonTemplate_2.BackgroundColor3 = Color3.fromRGB(0, 135, 203)
+ButtonTemplate_2.BorderColor3 = Color3.fromRGB(27, 42, 53)
+ButtonTemplate_2.Position = UDim2.new(0.00671140943, 5, 0.86076647, -140)
+ButtonTemplate_2.Size = UDim2.new(0.999999702, -10, 0, 25)
+ButtonTemplate_2.Font = Enum.Font.SourceSans
+ButtonTemplate_2.Text = "Destroy Parts: true"
+ButtonTemplate_2.TextColor3 = Color3.fromRGB(255, 255, 255)
+ButtonTemplate_2.TextSize = 14.000
+
+UICorner_3.Parent = ButtonTemplate_2
+
+ButtonTemplate_3.Name = "ButtonTemplate"
+ButtonTemplate_3.Parent = Frame
+ButtonTemplate_3.BackgroundColor3 = Color3.fromRGB(0, 135, 203)
+ButtonTemplate_3.BorderColor3 = Color3.fromRGB(27, 42, 53)
+ButtonTemplate_3.Position = UDim2.new(0.00671140943, 5, 0.9967314, -140)
+ButtonTemplate_3.Size = UDim2.new(0.999999702, -10, 0, 25)
+ButtonTemplate_3.Font = Enum.Font.SourceSans
+ButtonTemplate_3.Text = "Split Parts: true"
+ButtonTemplate_3.TextColor3 = Color3.fromRGB(255, 255, 255)
+ButtonTemplate_3.TextSize = 14.000
+
+UICorner_4.Parent = ButtonTemplate_3
+
+ButtonTemplate_4.Name = "ButtonTemplate"
+ButtonTemplate_4.Parent = Frame
+ButtonTemplate_4.BackgroundColor3 = Color3.fromRGB(0, 135, 203)
+ButtonTemplate_4.BorderColor3 = Color3.fromRGB(27, 42, 53)
+ButtonTemplate_4.Position = UDim2.new(-0.00671140943, 5, 1.13269627, -140)
+ButtonTemplate_4.Size = UDim2.new(0.999999702, -10, 0, 25)
+ButtonTemplate_4.Font = Enum.Font.SourceSans
+ButtonTemplate_4.Text = "Destructive Walk: false"
+ButtonTemplate_4.TextColor3 = Color3.fromRGB(255, 255, 255)
+ButtonTemplate_4.TextSize = 14.000
+
+UICorner_5.Parent = ButtonTemplate_4
+
+ButtonTemplate_5.Name = "ButtonTemplate"
+ButtonTemplate_5.Parent = Frame
+ButtonTemplate_5.BackgroundColor3 = Color3.fromRGB(0, 135, 203)
+ButtonTemplate_5.BorderColor3 = Color3.fromRGB(27, 42, 53)
+ButtonTemplate_5.Position = UDim2.new(-0.00671140943, 5, 1.27304721, -140)
+ButtonTemplate_5.Size = UDim2.new(0.999999702, -10, 0, 25)
+ButtonTemplate_5.Font = Enum.Font.SourceSans
+ButtonTemplate_5.Text = "Destroyed Anchored: false"
+ButtonTemplate_5.TextColor3 = Color3.fromRGB(255, 255, 255)
+ButtonTemplate_5.TextSize = 14.000
+
+UICorner_6.Parent = ButtonTemplate_5
+
+Title_2.Name = "Title"
+Title_2.Parent = Frame
+Title_2.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+Title_2.BackgroundTransparency = 1.000
+Title_2.BorderColor3 = Color3.fromRGB(27, 42, 53)
+Title_2.Position = UDim2.new(0, 6, 0, 177)
+Title_2.Size = UDim2.new(1, -10, -0.0307017546, 25)
+Title_2.Font = Enum.Font.SourceSansBold
+Title_2.Text = "Max Anchored Mass"
+Title_2.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title_2.TextSize = 14.000
+
+TextBox.Parent = Frame
+TextBox.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+TextBox.BorderColor3 = Color3.fromRGB(0, 0, 0)
+TextBox.BorderSizePixel = 0
+TextBox.Position = UDim2.new(0.0402684547, 0, 0.855263174, 0)
+TextBox.Size = UDim2.new(0, 139, 0, 26)
+TextBox.Font = Enum.Font.SourceSans
+TextBox.Text = "0"
+TextBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+TextBox.TextSize = 14.000
+
+UICorner_7.Parent = TextBox
+rq:InvokeServer(";speed me 30")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local scriptRef = script 
+
+local IDLE_ANIM  = "rbxassetid://139165177318950"
+local WALK_ANIM  = "rbxassetid://94269822528868"
+local SWING_ANIM = "rbxassetid://139165177318950"
+local DIE_ANIM   = "rbxassetid://139165177318950"
+
+local char, humanoid, animator
+local idle, walk, swing, die
+local dead = false
+
+local function loadAnim(id)
+	local anim = Instance.new("Animation")
+	anim.AnimationId = id
+	return animator:LoadAnimation(anim)
+end
+
+local function setupCharacter(character)
+	char = character
+	humanoid = char:WaitForChild("Humanoid")
+	animator = humanoid:WaitForChild("Animator")
+
+	local animate = char:FindFirstChild("Animate")
+	if animate then animate.Disabled = true end
+
+	idle  = loadAnim(IDLE_ANIM)
+	walk  = loadAnim(WALK_ANIM)
+	swing = loadAnim(SWING_ANIM)
+	die   = loadAnim(DIE_ANIM)
+
+	idle.Looped = true
+	walk.Looped = true
+	swing.Looped = false
+	die.Looped = false
+
+	humanoid.WalkSpeed = 16
+	idle:Play()
+
+	humanoid.Died:Connect(function()
+		dead = true
+
+		idle:Stop()
+		walk:Stop()
+		swing:Stop()
+
+		die:Play()
+
+		task.delay(0.1, function()
+			scriptRef:Destroy() 
+		end)
+	end)
+end
+
+RunService.RenderStepped:Connect(function()
+	if dead or not humanoid then return end
+
+	if humanoid.MoveDirection.Magnitude > 0 then
+		if not walk.IsPlaying then
+			idle:Stop()
+			walk:Play()
+		end
+	else
+		if not idle.IsPlaying then
+			walk:Stop()
+			idle:Play()
+		end
+	end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gp)
+	if gp or dead or not swing then return end
+
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+	or input.UserInputType == Enum.UserInputType.Touch then
+		swing:Play()
+	end
+end)
+
+if player.Character then
+	setupCharacter(player.Character)
+end
