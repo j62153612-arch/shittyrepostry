@@ -1,0 +1,77 @@
+local F3X = loadstring(game:HttpGet("https://raw.githubusercontent.com/j62153612-arch/shittyrepostry/refs/heads/main/script25"))()
+local Players = game:GetService("Players")
+local Player = Players.LocalPlayer
+local Char = Player.Character or Player.CharacterAdded:Wait()
+
+local Head = Char:WaitForChild("Head")
+local Torso = Char:FindFirstChild("Torso") or Char:WaitForChild("UpperTorso")
+
+local Pees = Instance.new("Sound")
+Pees.Parent = Torso
+Pees.SoundId = "rbxassetid://258063615"
+Pees.Looped = true
+Pees.Volume = 0.8
+Pees:Play()
+
+local function createSphere(cf, size, color, transparency, anchored)
+    local p = F3X.new("Part", workspace)
+    p.Shape = Enum.PartType.Ball
+    p.Size = size
+    p.CFrame = cf
+    p.Anchored = anchored
+    p.CanCollide = false
+    p.Color = color
+    p.Transparency = transparency
+    return p
+end
+
+task.spawn(function()
+    while true do
+        local dir = Head.CFrame.LookVector
+        
+        local sphere = createSphere(
+            Head.CFrame * CFrame.new(0, -0.5, -1),
+            Vector3.new(0.2,0.2,0.2),
+            Color3.fromRGB(255,255,0),
+            0,
+            false
+        )
+
+        task.spawn(function()
+            for i = 1,15 do
+                if not sphere then break end
+                sphere.CFrame = sphere.CFrame + (dir * 0.5) + Vector3.new(0,-0.3,0)
+                sphere.Size = sphere.Size + Vector3.new(0.05,0.05,0.05)
+                sphere.Transparency += 0.05
+                task.wait(0.03)
+            end
+            if sphere then sphere:Destroy() end
+        end)
+
+        task.wait(0.02)
+    end
+end)
+
+task.spawn(function()
+    while true do
+        local pee = createSphere(
+            Torso.CFrame * CFrame.new(0, -3, -6),
+            Vector3.new(1.5,1.5,1.5),
+            Color3.fromRGB(255, 255, 0),
+            0.4,
+            true
+        )
+
+        task.spawn(function()
+            for i = 1,10 do
+                pee.Size += Vector3.new(0.2,0,0.2)
+                pee.CFrame = pee.CFrame * CFrame.new(0,-0.01,0)
+                task.wait(0.05)
+            end
+        end)
+
+        game:GetService("Debris"):AddItem(pee.Object or pee, 10)
+
+        task.wait(0.05)
+    end
+end)
