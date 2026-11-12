@@ -1,0 +1,721 @@
+-- thank and hate you shd0k1dd and his fellow ai for this script 
+
+-- fixed by me
+
+local player = game.Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local hum = char:WaitForChild("Humanoid")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local runService = game:GetService("RunService")
+
+task.spawn(function()
+    local hd = ReplicatedStorage:FindFirstChild("HDAdmin") or ReplicatedStorage:FindFirstChild("HDAdminHDClient")
+    if hd then
+        local signals = hd:FindFirstChild("Signals") or (hd:FindFirstChild("HDClient") and hd.HDClient:FindFirstChild("Signals"))
+        local req = signals and signals:FindFirstChild("RequestCommandSilent")
+        if req then 
+            pcall(function() req:InvokeServer(";invisible me") end)
+            
+        end
+    end
+end)
+
+local tool = player:FindFirstChild("SyncAPI", true) or ReplicatedStorage:FindFirstChild("SyncAPI", true)
+if not tool then return end
+local remote = tool:IsA("RemoteFunction") and tool or tool:FindFirstChild("ServerEndpoint")
+
+local partMap = {}
+local lastCF = {}
+_G.F3X_SyncActive = true
+
+local function GetVisualData(real)
+    local meshes, textures = {}, {}
+    for _, item in ipairs(real:GetDescendants()) do
+        if item:IsA("SpecialMesh") then
+            table.insert(meshes, {Part = nil, MeshType = item.MeshType, Scale = item.Scale, MeshId = item.MeshId, TextureId = item.TextureId})
+        elseif item:IsA("Decal") or item:IsA("Texture") then
+            table.insert(textures, {
+                Part = nil, Face = item.Face, Texture = item.Texture, Transparency = item.Transparency,
+                Color = item.Color3, TextureType = item.ClassName,
+                OffsetStudsU = item:IsA("Texture") and item.OffsetStudsU or 0,
+                OffsetStudsV = item:IsA("Texture") and item.OffsetStudsV or 0,
+                StudsPerTileU = item:IsA("Texture") and item.StudsPerTileU or 1,
+                StudsPerTileV = item:IsA("Texture") and item.StudsPerTileV or 1
+            })
+        end
+    end
+    if real:IsA("MeshPart") then
+        table.insert(meshes, {Part = nil, MeshType = Enum.MeshType.FileMesh, Scale = Vector3.new(1,1,1), MeshId = real.MeshId, TextureId = real.TextureID})
+    end
+    return meshes, textures
+end
+
+local function TrackChanges(real, fake)
+    local function update()
+        if real.Parent and fake.Parent then
+            
+            remote:InvokeServer("SyncColor", {{Part = fake, Color = real.Color, Transparency = real.Transparency}})
+
+            remote:InvokeServer("SyncResize", {{Part = fake, Size = real.Size, CFrame = real.CFrame}})
+        end
+    end
+    
+    real:GetPropertyChangedSignal("Color"):Connect(update)
+    real:GetPropertyChangedSignal("Transparency"):Connect(update)
+    real:GetPropertyChangedSignal("Size"):Connect(update)
+    real:GetPropertyChangedSignal("Material"):Connect(update)
+
+    for _, v in pairs(real:GetDescendants()) do
+
+	if v:IsA("SpecialMesh") then
+
+		local function syncMesh()
+			remote:InvokeServer("SyncMesh", {{
+				Part = fake,
+				MeshType = v.MeshType,
+				Scale = v.Scale,
+				MeshId = v.MeshId,
+				TextureId = v.TextureId
+			}})
+		end
+
+		v:GetPropertyChangedSignal("MeshId"):Connect(syncMesh)
+		v:GetPropertyChangedSignal("TextureId"):Connect(syncMesh)
+		v:GetPropertyChangedSignal("Scale"):Connect(syncMesh)
+
+	elseif v:IsA("Decal") or v:IsA("Texture") then
+
+		local function syncTexture()
+			remote:InvokeServer("SyncTexture", {{
+				Part = fake,
+				Face = v.Face,
+				Texture = v.Texture,
+				Transparency = v.Transparency,
+				Color = v:IsA("Texture") and v.Color3 or nil,
+				TextureType = v.ClassName,
+				OffsetStudsU = v:IsA("Texture") and v.OffsetStudsU or 0,
+				OffsetStudsV = v:IsA("Texture") and v.OffsetStudsV or 0,
+				StudsPerTileU = v:IsA("Texture") and v.StudsPerTileU or 1,
+				StudsPerTileV = v:IsA("Texture") and v.StudsPerTileV or 1
+			}})
+		end
+
+		v:GetPropertyChangedSignal("Texture"):Connect(syncTexture)
+		v:GetPropertyChangedSignal("Transparency"):Connect(syncTexture)
+
+		if v:IsA("Texture") then
+			v:GetPropertyChangedSignal("Color3"):Connect(syncTexture)
+			v:GetPropertyChangedSignal("OffsetStudsU"):Connect(syncTexture)
+			v:GetPropertyChangedSignal("OffsetStudsV"):Connect(syncTexture)
+			v:GetPropertyChangedSignal("StudsPerTileU"):Connect(syncTexture)
+			v:GetPropertyChangedSignal("StudsPerTileV"):Connect(syncTexture)
+		end
+	end
+end
+    
+
+    if not _G.F3X_DeathCleanup then
+	_G.F3X_DeathCleanup = true
+
+	hum.Died:Connect(function()
+
+		if _G.F3X_MoveLoop then
+			_G.F3X_MoveLoop:Disconnect()
+			_G.F3X_MoveLoop = nil
+		end
+
+		local removePacket = {}
+
+		for real, fake in pairs(partMap) do
+			if fake and fake.Parent then
+				removePacket[#removePacket + 1] = fake
+			end
+		end
+
+		if #removePacket > 0 then
+			pcall(function()
+				remote:InvokeServer("RemoveObjects", removePacket)
+			end)
+		end
+
+		table.clear(partMap)
+
+		if lastCF then
+			table.clear(lastCF)
+		end
+	end)
+end
+end
+local function SyncBodyPart(real)
+    if not real:IsA("BasePart")
+	or real.Name == "HumanoidRootPart"
+	or real:FindFirstChild("F3X_Synced")
+then
+	return
+end
+
+local visible = false
+
+if real.Transparency < 1 then
+	visible = true
+end
+
+for _, v in pairs(real:GetDescendants()) do
+	if v:IsA("Decal") or v:IsA("Texture") then
+		if v.Transparency < 1 and v.Texture ~= "" then
+			visible = true
+			break
+		end
+	elseif v:IsA("SpecialMesh") then
+	if v.TextureId ~= "" or v.MeshId ~= "" then
+		visible = true
+	end
+end
+end
+
+if not visible then
+	return
+end
+    Instance.new("BoolValue", real).Name = "F3X_Synced"
+
+    task.spawn(function()
+        local success, fake = pcall(function()
+	return remote:InvokeServer("CreatePart", "Normal", real.CFrame, workspace)
+end)
+        if success and fake then
+            partMap[real] = fake
+           
+
+            remote:InvokeServer("SyncAnchor", {{Part = fake, Anchored = true}})
+remote:InvokeServer("SyncCollision", {{Part = fake, CanCollide = false}})
+
+remote:InvokeServer("SyncMaterial", {{
+	Part = fake,
+	Material = real.Material
+}})
+
+remote:InvokeServer("SyncColor", {{
+	Part = fake,
+	Color = real.Color,
+	Transparency = real.Transparency
+}})
+
+remote:InvokeServer("SyncResize", {{
+	Part = fake,
+	Size = real.Size,
+	CFrame = real.CFrame
+}})
+
+            local meshes, textures = GetVisualData(real)
+            if #meshes > 0 then
+                for i in pairs(meshes) do meshes[i].Part = fake end
+                remote:InvokeServer("CreateMeshes", {{Part = fake}})
+                remote:InvokeServer("SyncMesh", meshes)
+            end
+           
+
+            if #textures > 0 then
+                local createPack = {}
+                for i in pairs(textures) do 
+                    textures[i].Part = fake 
+                    table.insert(createPack, {Part = fake, Face = textures[i].Face, TextureType = textures[i].TextureType})
+                end
+                remote:InvokeServer("CreateTextures", createPack)
+                task.wait(0.1)
+                remote:InvokeServer("SyncTexture", textures)
+            end
+
+local spot = real:FindFirstChildOfClass("SpotLight")
+
+if spot then
+	
+	remote:InvokeServer("CreateLights", {{
+		Part = fake,
+		LightType = "SpotLight"
+	}})
+
+	remote:InvokeServer("SyncLighting", {{
+		Part = fake,
+		LightType = "SpotLight",
+		Color = spot.Color,
+		Range = spot.Range,
+		Face = spot.Face,
+		Angle = spot.Angle,
+		Brightness = spot.Brightness,
+		Shadows = spot.Shadows
+	}})
+end
+
+local point = real:FindFirstChildOfClass("PointLight")
+
+if point then
+	
+	remote:InvokeServer("CreateLights", {{
+		Part = fake,
+		LightType = "PointLight"
+	}})
+
+	remote:InvokeServer("SyncLighting", {{
+		Part = fake,
+		LightType = "PointLight",
+		Color = point.Color,
+		Range = point.Range,
+		Brightness = point.Brightness,
+		Shadows = point.Shadows
+	}})
+end
+
+local surface = real:FindFirstChildOfClass("SurfaceLight")
+
+if surface then
+	
+	remote:InvokeServer("CreateLights", {{
+		Part = fake,
+		LightType = "SurfaceLight"
+	}})
+
+	remote:InvokeServer("SyncLighting", {{
+		Part = fake,
+		LightType = "SurfaceLight",
+		Color = surface.Color,
+		Range = surface.Range,
+		Face = surface.Face,
+		Angle = surface.Angle,
+		Brightness = surface.Brightness,
+		Shadows = surface.Shadows
+	}})
+end
+
+for _, object in pairs(real:GetChildren()) do
+	
+	if object:IsA("Fire")
+	or object:IsA("Smoke")
+	or object:IsA("Sparkles") then
+
+		local properties = {
+			Part = fake,
+			DecorationType = object.ClassName
+		}
+
+		if object:IsA("Fire") then
+			
+			properties.Color = object.Color
+			properties.SecondaryColor = object.SecondaryColor
+			properties.Heat = object.Heat
+			properties.Size = object.Size
+
+		elseif object:IsA("Smoke") then
+			
+			properties.Color = object.Color
+			properties.Opacity = object.Opacity
+			properties.RiseVelocity = object.RiseVelocity
+			properties.Size = object.Size
+
+		elseif object:IsA("Sparkles") then
+			
+			properties.SparkleColor = object.SparkleColor
+		end
+
+		remote:InvokeServer("SyncDecorate", {properties})
+	end
+end
+
+            TrackChanges(real, fake)
+
+            real.LocalTransparencyModifier = 1
+            for _, v in pairs(real:GetDescendants()) do if v:IsA("BasePart") or v:IsA("Decal") then v.LocalTransparencyModifier = 1 end end
+            
+for _, light in pairs(real:GetChildren()) do
+	
+	if light:IsA("PointLight")
+	or light:IsA("SpotLight")
+	or light:IsA("SurfaceLight") then
+		
+		local function syncLight()
+			
+			if fake.Parent then
+				
+				remote:InvokeServer("SyncLighting", {{
+					Part = fake,
+					LightType = light.ClassName,
+					Color = light.Color,
+					Range = light.Range,
+					Brightness = light.Brightness,
+					Shadows = light.Shadows,
+					Face = light:IsA("SpotLight") or light:IsA("SurfaceLight") and light.Face or nil,
+Angle = light:IsA("SpotLight") or light:IsA("SurfaceLight") and light.Angle or nil
+				}})
+			end
+		end
+
+		light:GetPropertyChangedSignal("Color"):Connect(syncLight)
+		light:GetPropertyChangedSignal("Brightness"):Connect(syncLight)
+		light:GetPropertyChangedSignal("Range"):Connect(syncLight)
+
+		if light:IsA("SpotLight") or light:IsA("SurfaceLight") then
+			light:GetPropertyChangedSignal("Angle"):Connect(syncLight)
+			light:GetPropertyChangedSignal("Face"):Connect(syncLight)
+		end
+	end
+end
+
+real.ChildAdded:Connect(function(child)
+
+	if child:IsA("PointLight")
+	or child:IsA("SpotLight")
+	or child:IsA("SurfaceLight") then
+
+		remote:InvokeServer("CreateLights", {{
+			Part = fake,
+			LightType = child.ClassName
+		}})
+
+		task.wait()
+
+		local data = {
+			Part = fake,
+			LightType = child.ClassName,
+			Color = child.Color,
+			Range = child.Range,
+			Brightness = child.Brightness,
+			Shadows = child.Shadows
+		}
+
+		if child:IsA("SpotLight") or child:IsA("SurfaceLight") then
+			data.Face = child.Face
+			data.Angle = child.Angle
+		end
+
+		remote:InvokeServer("SyncLighting", {{data}})
+
+		
+		local function syncLight()
+			
+			if fake.Parent then
+				
+				local update = {
+					Part = fake,
+					LightType = child.ClassName,
+					Color = child.Color,
+					Range = child.Range,
+					Brightness = child.Brightness,
+					Shadows = child.Shadows
+				}
+
+				if child:IsA("SpotLight") or child:IsA("SurfaceLight") then
+					update.Face = child.Face
+					update.Angle = child.Angle
+				end
+
+				remote:InvokeServer("SyncLighting", {{update}})
+			end
+		end
+
+		child:GetPropertyChangedSignal("Enabled"):Connect(syncLight)
+		child:GetPropertyChangedSignal("Brightness"):Connect(syncLight)
+		child:GetPropertyChangedSignal("Range"):Connect(syncLight)
+		child:GetPropertyChangedSignal("Color"):Connect(syncLight)
+	end
+end)
+real.ChildAdded:Connect(function(object)
+
+	if object:IsA("Fire")
+	or object:IsA("Smoke")
+	or object:IsA("Sparkles") then
+
+		local properties = {
+			Part = fake,
+			DecorationType = object.ClassName
+		}
+
+		if object:IsA("Fire") then
+			
+			properties.Color = object.Color
+			properties.SecondaryColor = object.SecondaryColor
+			properties.Heat = object.Heat
+			properties.Size = object.Size
+
+		elseif object:IsA("Smoke") then
+			
+			properties.Color = object.Color
+			properties.Opacity = object.Opacity
+			properties.RiseVelocity = object.RiseVelocity
+			properties.Size = object.Size
+
+		elseif object:IsA("Sparkles") then
+			
+			properties.SparkleColor = object.SparkleColor
+		end
+
+		remote:InvokeServer("SyncDecorate", {properties})
+	end
+end)
+            real.AncestryChanged:Connect(function(_, p) if not p then remote:InvokeServer("RemoveObjects", {fake}) end end)
+        end
+    end)
+end
+
+for _, v in pairs(char:GetDescendants()) do SyncBodyPart(v) end
+char.DescendantAdded:Connect(SyncBodyPart)
+local lastCF = {}
+local sendRate = 1/30
+local nextSend = 0
+
+local movingParts = {}
+local movingCount = 0
+
+if _G.F3X_MoveLoop then
+	_G.F3X_MoveLoop:Disconnect()
+end
+
+_G.F3X_MoveLoop = runService.RenderStepped:Connect(function()
+	local now = tick()
+
+	if now < nextSend then
+		return
+	end
+
+	nextSend = now + sendRate
+
+	table.clear(movingParts)
+	movingCount = 0
+
+	for real, fake in next, partMap do
+		if real.Parent and fake.Parent then
+			
+			local cf = real.CFrame
+			local old = lastCF[real]
+
+			if not old
+			or (old.Position - cf.Position).Magnitude > 0.01
+			or (old.LookVector - cf.LookVector).Magnitude > 0.01 then
+
+				lastCF[real] = cf
+
+				movingCount += 1
+				movingParts[movingCount] = {
+					Part = fake,
+					CFrame = cf
+				}
+			end
+		else
+			partMap[real] = nil
+			lastCF[real] = nil
+		end
+	end
+
+	if movingCount > 0 then
+		remote:InvokeServer("SyncMove", movingParts)
+	end
+end)
+--[[
+
+	WARNING: Heads up! This script has not been verified by ScriptBlox. Use at your own risk!]]
+
+local Me = game:GetService("Players").LocalPlayer
+
+local Char = Me.Character
+
+local Torso = Char.Torso
+
+local TickWait = 1
+
+local Color = "Medium stone gray"
+
+local Dead = false
+
+local Tool = Instance.new("HopperBin", Me.Backpack)
+
+Tool.Name = "Bomb Vest"
+
+local Position = Vector3.new(0,100,0)
+
+function NewPart(Parent)
+
+	local Part = Instance.new("Part", Parent)
+
+	Part.CanCollide = false
+
+	Part.FormFactor = "Custom"
+
+	Part.Position = Position
+
+	Part.TopSurface = "Smooth"
+
+	Part.BottomSurface = "Smooth"
+
+	Part.BrickColor = BrickColor.new(Color)
+
+	Position = Position + Vector3.new(0,Part.Size.Y + 10,0)
+
+	return Part
+
+end
+
+local Model = Char:FindFirstChild("Bomb")
+
+if Model then Model:Destroy() end
+
+Model = Instance.new("Model", Char)
+
+Model.Name = "Bomb"
+
+local Belt = NewPart(Model)
+
+Belt.Size = Vector3.new(2.2,0.5,1.2)
+
+local Weld = Instance.new("Weld", Belt)
+
+Weld.Part0 = Belt
+
+Weld.Part1 = Torso
+
+Weld.C0 = CFrame.new(0,1.1,0)
+
+local Light = Instance.new("PointLight", Belt)
+
+Light.Range = 15
+
+Light.Brightness = 5
+
+Light.Color = Color3.new(1,0,0)
+
+local Beep = Instance.new("Sound", Belt)
+
+Beep.SoundId = "http://www.roblox.com/asset/?id=188588790"
+
+local ExplodeSound = Instance.new("Sound", Belt)
+
+ExplodeSound.SoundId = "http://www.roblox.com/asset/?id="..(tonumber((math.ceil(1776.66^2)+17).."."..string.rep("36",3))*77)+0.00003 --144507765
+
+ExplodeSound.Pitch = 2.8
+
+ExplodeSound.Volume = 3
+
+local Back = NewPart(Model)
+
+Back.Size = Vector3.new(1.5,1.5,0.5)
+
+local Weld = Instance.new("Weld", Back)
+
+Weld.Part0 = Back
+
+Weld.Part1 = Torso
+
+Weld.C0 = CFrame.new(0,0.1,-0.75)
+
+local StrapLeft = NewPart(Model)
+
+StrapLeft.Size = Vector3.new(0.2,0.5,1.6)
+
+local Weld = Instance.new("Weld", StrapLeft)
+
+Weld.Part0 = StrapLeft
+
+Weld.Part1 = Torso
+
+Weld.C0 = CFrame.new(0.65,-0.9,-0.2)
+
+local BuckleLeft = NewPart(Model)
+
+BuckleLeft.Size = Vector3.new(0.2,1.5,0.2)
+
+local Weld = Instance.new("Weld", BuckleLeft)
+
+Weld.Part0 = BuckleLeft
+
+Weld.Part1 = Torso
+
+Weld.C0 = CFrame.new(0.65,0.1,0.5)
+
+local StrapRight = NewPart(Model)
+
+StrapRight.Size = Vector3.new(0.2,0.5,1.6)
+
+local Weld = Instance.new("Weld", StrapRight)
+
+Weld.Part0 = StrapRight
+
+Weld.Part1 = Torso
+
+Weld.C0 = CFrame.new(-0.65,-0.9,-0.2)
+
+local BuckleRight = NewPart(Model)
+
+BuckleRight.Size = Vector3.new(0.2,1.5,0.2)
+
+local Weld = Instance.new("Weld", BuckleRight)
+
+Weld.Part0 = BuckleRight
+
+Weld.Part1 = Torso
+
+Weld.C0 = CFrame.new(-0.65,0.1,0.5)
+
+Tool.Selected:connect(function(Mouse)
+
+	TickWait = 0.3
+
+	Mouse.Icon = "http://www.roblox.com/asset/?id=9109985"
+
+	
+
+	Mouse.Button1Down:connect(function()
+
+		if Dead == false then
+
+			Dead = true
+
+			ExplodeSound:Play()
+
+			wait(1.4)
+
+			local Explosion = Instance.new("Explosion", Workspace)
+
+			Explosion.Position = Belt.Position
+
+			Explosion.BlastPressure = 100000
+
+			Explosion.DestroyJointRadiusPercent = 0.7
+
+			Explosion.ExplosionType = "CratersAndDebris"
+
+			Explosion.BlastRadius = 1000
+
+			Explosion.Hit:connect(function(Part, Distance)
+
+				Part.Anchored = false
+
+				if Distance <= 10 then
+
+					Part:BreakJoints()
+
+				end
+
+			end)
+
+		end
+
+	end)
+
+end)
+
+Tool.Deselected:connect(function()
+
+	TickWait = 1
+
+end)
+
+coroutine.wrap(function()
+
+	repeat
+
+		wait(TickWait)
+
+		Light.Enabled = not Light.Enabled
+
+		Beep:Play()
+
+	until Dead == true
+
+end)()
