@@ -1,0 +1,650 @@
+--[[
+	WARNING: Heads up! This script has not been verified by ScriptBlox. Use at your own risk!
+]]
+-- Kidnap Command & Control GUI Script (Fixed Throttling & Teleport Sequence)
+local Players = game:GetService("Players")
+local TeleportService = game:GetService("TeleportService")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+local LocalPlayer = Players.LocalPlayer
+
+local DEFAULT_MODEL_ID = 3544143040
+
+--------------------------------------------------------------------------------
+-- F3X Endpoint Resolver
+--------------------------------------------------------------------------------
+local function GetF3X()
+    local char = LocalPlayer.Character
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local tool = (char and (char:FindFirstChild("Building Tools") or char:FindFirstChild("F3X"))) 
+        or (backpack and (backpack:FindFirstChild("Building Tools") or backpack:FindFirstChild("F3X")))
+    
+    if tool then
+        local syncAPI = tool:FindFirstChild("SyncAPI") or tool:FindFirstChild("SyncApi")
+        if syncAPI then
+            local endpoint = syncAPI:FindFirstChild("ServerEndpoint") or syncAPI:FindFirstChild("ServerControl")
+            if endpoint then return endpoint end
+        end
+        for _, desc in ipairs(tool:GetDescendants()) do
+            if desc:IsA("RemoteFunction") or desc:IsA("RemoteEvent") then
+                return desc
+            end
+        end
+    end
+    return nil
+end
+
+local function MapPartType(part)
+    if part:IsA("WedgePart") then return "Wedge" end
+    if part:IsA("CornerWedgePart") then return "Corner" end
+    if part:IsA("TrussPart") then return "Truss" end
+    if part:IsA("Part") then
+        if part.Shape == Enum.PartType.Ball then return "Sphere" end
+        if part.Shape == Enum.PartType.Cylinder then return "Cylinder" end
+    end
+    return "Normal"
+end
+
+local function SafeGetObjects(id)
+    local loaded = false
+    local result = nil
+    
+    task.spawn(function()
+        local success, raw = pcall(function() return game:GetObjects("rbxassetid://" .. tostring(id)) end)
+        if success and raw and #raw > 0 then
+            result = raw[1]
+        end
+        loaded = true
+    end)
+    
+    local timeWaited = 0
+    while not loaded and timeWaited < 8 do
+        task.wait(0.05)
+        timeWaited += 0.05
+    end
+    
+    return result
+end
+
+local function GetContainerBoundingBox(object)
+    if object:IsA("Model") then
+        local success, cf, size = pcall(function() return object:GetBoundingBox() end)
+        if success and cf and size then
+            return cf, size
+        end
+    elseif object:IsA("BasePart") then
+        return object.CFrame, object.Size
+    end
+    
+    local parts = {}
+    for _, desc in ipairs(object:GetDescendants()) do
+        if desc:IsA("BasePart") then
+            table.insert(parts, desc)
+        end
+    end
+    
+    if #parts == 0 then
+        return CFrame.new(), Vector3.new(4, 1, 2)
+    end
+    
+    local minX, minY, minZ = math.huge, math.huge, math.huge
+    local maxX, maxY, maxZ = -math.huge, -math.huge, -math.huge
+    
+    for _, part in ipairs(parts) do
+        local cf = part.CFrame
+        local size = part.Size
+        local pmin = cf.Position - size/2
+        local pmax = cf.Position + size/2
+        minX = math.min(minX, pmin.X); minY = math.min(minY, pmin.Y); minZ = math.min(minZ, pmin.Z)
+        maxX = math.max(maxX, pmax.X); maxY = math.max(maxY, pmax.Y); maxZ = math.max(maxZ, pmax.Z)
+    end
+    
+    local center = Vector3.new((minX + maxX)/2, (minY + maxY)/2, (minZ + maxZ)/2)
+    local size = Vector3.new(maxX - minX, maxY - minY, maxZ - minZ)
+    return CFrame.new(center), size
+end
+
+--------------------------------------------------------------------------------
+-- Fast Parallel Asset Import
+--------------------------------------------------------------------------------
+local function FastImportModel(endpoint, modelId, spawnCFrame)
+    local rootObject = SafeGetObjects(modelId)
+    if not rootObject then return nil, {}, {}, {} end
+
+    local boundingCFrame = GetContainerBoundingBox(rootObject)
+    local partsToImport = {}
+
+    if rootObject:IsA("BasePart") then table.insert(partsToImport, rootObject) end
+    for _, child in ipairs(rootObject:GetDescendants()) do
+        if child:IsA("BasePart") then table.insert(partsToImport, child) end
+    end
+
+    if #partsToImport == 0 then
+        rootObject:Destroy()
+        return nil, {}, {}, {}
+    end
+
+    local createdF3XParts = {}
+    local primaryPart = nil
+    local doorParts = {}
+    local createdMap = {}
+
+    local pending = #partsToImport
+    local bindable = Instance.new("BindableEvent")
+
+    for idx, part in ipairs(partsToImport) do
+        task.spawn(function()
+            local targetCFrame = spawnCFrame * boundingCFrame:ToObjectSpace(part.CFrame)
+            local partType = MapPartType(part)
+            
+            local ok, createdPart = pcall(function()
+                if endpoint:IsA("RemoteFunction") then
+                    return endpoint:InvokeServer("CreatePart", partType, targetCFrame, workspace)
+                else
+                    endpoint:FireServer("CreatePart", partType, targetCFrame, workspace)
+                end
+            end)
+            
+            if ok and createdPart then
+                createdMap[idx] = { Instance = createdPart, Original = part, TargetCFrame = targetCFrame }
+            end
+
+            pending -= 1
+            if pending <= 0 then
+                bindable:Fire()
+            end
+        end)
+    end
+
+    if pending > 0 then
+        bindable.Event:Wait()
+    end
+    bindable:Destroy()
+
+    local resizeBatch, colorBatch, matBatch, anchorBatch, collisionBatch = {}, {}, {}, {}, {}
+    local createMeshesBatch, syncMeshBatch = {}, {}
+
+    for idx = 1, #partsToImport do
+        if createdMap[idx] then
+            local c = createdMap[idx].Instance
+            local p = createdMap[idx].Original
+            local t = createdMap[idx].TargetCFrame
+
+            table.insert(createdF3XParts, c)
+            if not primaryPart or p.Name == "Primary" or p.Name == "HumanoidRootPart" or p.Name == "Body" then
+                primaryPart = c
+            end
+
+            if string.find(string.lower(p.Name), "door") then
+                table.insert(doorParts, c)
+            end
+
+            table.insert(resizeBatch, { Part = c, CFrame = t, Size = p.Size })
+            table.insert(colorBatch, { Part = c, Color = p.Color })
+            table.insert(matBatch, { Part = c, Material = p.Material, Transparency = p.Transparency })
+            table.insert(anchorBatch, { Part = c, Anchored = true })
+            table.insert(collisionBatch, { Part = c, CanCollide = false })
+
+            if p:IsA("MeshPart") then
+                table.insert(createMeshesBatch, { Part = c })
+                table.insert(syncMeshBatch, {
+                    Part = c,
+                    MeshType = Enum.MeshType.FileMesh,
+                    MeshId = p.MeshId,
+                    TextureId = p.TextureID or "",
+                    Scale = Vector3.new(1, 1, 1)
+                })
+            end
+
+            for _, descendant in ipairs(p:GetChildren()) do
+                if descendant:IsA("SpecialMesh") then
+                    table.insert(createMeshesBatch, { Part = c })
+                    table.insert(syncMeshBatch, {
+                        Part = c,
+                        MeshType = descendant.MeshType,
+                        MeshId = descendant.MeshId,
+                        TextureId = descendant.TextureId,
+                        Scale = descendant.Scale,
+                        Offset = descendant.Offset,
+                        VertexColor = descendant.VertexColor
+                    })
+                elseif descendant:IsA("Decal") or descendant:IsA("Texture") or descendant:IsA("SurfaceAppearance") then
+                    pcall(function()
+                        local clone = descendant:Clone()
+                        clone.Parent = c
+                    end)
+                end
+            end
+        end
+    end
+
+    local function SendBatch(method, batch)
+        if #batch == 0 then return end
+        local chunkSize = 200
+        for i = 1, #batch, chunkSize do
+            local chunk = {}
+            for j = i, math.min(i + chunkSize - 1, #batch) do
+                table.insert(chunk, batch[j])
+            end
+            pcall(function()
+                if endpoint:IsA("RemoteFunction") then
+                    endpoint:InvokeServer(method, chunk)
+                else
+                    endpoint:FireServer(method, chunk)
+                end
+            end)
+        end
+    end
+
+    SendBatch("SyncResize", resizeBatch)
+    SendBatch("SyncColor", colorBatch)
+    SendBatch("SyncMaterial", matBatch)
+    SendBatch("SyncAnchor", anchorBatch)
+    SendBatch("SyncCollision", collisionBatch)
+    if #createMeshesBatch > 0 then SendBatch("CreateMeshes", createMeshesBatch) end
+    if #syncMeshBatch > 0 then SendBatch("SyncMesh", syncMeshBatch) end
+
+    primaryPart = primaryPart or createdF3XParts[1]
+
+    local partOffsets = {}
+    if primaryPart then
+        local primaryStartCF = primaryPart.CFrame
+        for _, part in ipairs(createdF3XParts) do
+            partOffsets[part] = primaryStartCF:ToObjectSpace(part.CFrame)
+        end
+    end
+
+    rootObject:Destroy()
+    return primaryPart, createdF3XParts, partOffsets, doorParts
+end
+
+--------------------------------------------------------------------------------
+-- Target Resolver (Prefix / First-Letter Match)
+--------------------------------------------------------------------------------
+local function getTargets(arg)
+    if not arg or arg == "" then return {LocalPlayer} end
+    arg = string.lower(arg)
+
+    if arg == "me" then
+        return {LocalPlayer}
+    elseif arg == "all" then
+        return Players:GetPlayers()
+    elseif arg == "others" then
+        local matched = {}
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then table.insert(matched, p) end
+        end
+        return matched
+    end
+
+    local matched = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        local name = string.lower(p.Name)
+        local disp = string.lower(p.DisplayName)
+        
+        if string.sub(name, 1, #arg) == arg or string.sub(disp, 1, #arg) == arg or string.find(name, arg, 1, true) or string.find(disp, arg, 1, true) then
+            table.insert(matched, p)
+        end
+    end
+    return matched
+end
+
+--------------------------------------------------------------------------------
+-- Core Kidnap Execution
+--------------------------------------------------------------------------------
+local function executeKidnap(targetPlayer, modelId, driveDistance, moveSpeed)
+    task.spawn(function()
+        local endpoint = GetF3X()
+        if not endpoint then
+            warn("Kidnap Error: F3X Building Tools not found!")
+            return
+        end
+
+        local char = targetPlayer.Character
+        if not char then return end
+
+        local torso = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        local isLocal = (targetPlayer == LocalPlayer)
+
+        if torso and humanoid then
+            humanoid.WalkSpeed = 0
+            humanoid.JumpPower = 0
+            humanoid.AutoRotate = false
+
+            local tPos = torso.CFrame
+            local approachDist = math.clamp(driveDistance * 0.4, 200, 1000)
+            local spawnPos = tPos * (CFrame.new(-approachDist, 0, -7) * CFrame.Angles(0, math.rad(270), 0))
+
+            local primary, allParts, offsets, doorParts = FastImportModel(endpoint, modelId, spawnPos)
+            if not primary or #allParts == 0 then
+                humanoid.WalkSpeed = 16
+                humanoid.JumpPower = 50
+                humanoid.AutoRotate = true
+                return
+            end
+
+            local function check()
+                return targetPlayer and targetPlayer.Parent == Players and torso and humanoid and torso.Parent and humanoid.Parent and char and char.Parent
+            end
+
+            local sound, chuckle
+            if isLocal then
+                sound = Instance.new("Sound", primary)
+                sound.SoundId = "rbxassetid://532147820"
+                sound.Looped = true
+                sound:Play()
+
+                chuckle = Instance.new("Sound", primary)
+                chuckle.SoundId = "rbxassetid://109527445730513"
+                chuckle.Looped = true
+                chuckle.Volume = 0.25
+                chuckle:Play()
+            end
+
+            local function SetDoorTransparency(transparencyValue)
+                if #doorParts > 0 then
+                    local matBatch = {}
+                    for _, dPart in ipairs(doorParts) do
+                        table.insert(matBatch, { Part = dPart, Material = dPart.Material, Transparency = transparencyValue })
+                    end
+                    pcall(function()
+                        if endpoint:IsA("RemoteFunction") then
+                            endpoint:InvokeServer("SyncMaterial", matBatch)
+                        else
+                            endpoint:FireServer("SyncMaterial", matBatch)
+                        end
+                    end)
+                end
+            end
+
+            -- Throttled Drive Loop (20Hz Server Network Update Rate)
+            local function SmoothThrottledDrive(startCF, targetCF, speed)
+                local dist = (targetCF.Position - startCF.Position).Magnitude
+                local duration = math.max(0.2, dist / speed)
+                local startTime = os.clock()
+                local lastNetworkSend = 0
+                local sendInterval = 0.05 -- 20 FPS network sync rate to prevent server throttling
+                local thread = coroutine.running()
+                local conn
+
+                conn = RunService.PreRender:Connect(function()
+                    if not check() then
+                        conn:Disconnect()
+                        task.spawn(thread)
+                        return
+                    end
+
+                    local now = os.clock()
+                    local elapsed = now - startTime
+                    local alpha = math.clamp(elapsed / duration, 0, 1)
+                    local currentCF = startCF:Lerp(targetCF, alpha)
+
+                    -- Update server positions at 20Hz interval
+                    if (now - lastNetworkSend) >= sendInterval or alpha >= 1 then
+                        lastNetworkSend = now
+                        local batchMove = {}
+                        for part, offsetCF in pairs(offsets) do
+                            table.insert(batchMove, { Part = part, CFrame = currentCF * offsetCF })
+                        end
+
+                        task.spawn(function()
+                            pcall(function()
+                                if endpoint:IsA("RemoteFunction") then
+                                    endpoint:InvokeServer("SyncMove", batchMove)
+                                else
+                                    endpoint:FireServer("SyncMove", batchMove)
+                                end
+                            end)
+                        end)
+                    end
+
+                    if alpha >= 1 then
+                        conn:Disconnect()
+                        task.spawn(thread)
+                    end
+                end)
+
+                coroutine.yield()
+            end
+
+            -- Drive Approach Phase
+            local approachStartCF = spawnPos
+            local approachTargetCF = tPos * (CFrame.new(0, 0, -7) * CFrame.Angles(0, math.rad(270), 0))
+
+            SmoothThrottledDrive(approachStartCF, approachTargetCF, moveSpeed)
+
+            if sound then sound.PlaybackSpeed = 0.9 end
+            task.wait(0.1)
+            if check() then SetDoorTransparency(1) end
+            task.wait(0.2)
+
+            -- Lock Player Inside Vehicle
+            local activeWeld = nil
+            local lockConnection = nil
+
+            if check() then
+                local vehicleInsideCF = primary.CFrame * (CFrame.new(0, 2.3, 0) * CFrame.Angles(0, math.rad(90), 0))
+                
+                if isLocal then
+                    torso.Anchored = true
+                    torso.CFrame = vehicleInsideCF
+
+                    lockConnection = RunService.PreRender:Connect(function()
+                        if check() and primary and primary.Parent then
+                            torso.CFrame = primary.CFrame * (CFrame.new(0, 2.3, 0) * CFrame.Angles(0, math.rad(90), 0))
+                        end
+                    end)
+                else
+                    task.spawn(function()
+                        pcall(function()
+                            if endpoint:IsA("RemoteFunction") then
+                                endpoint:InvokeServer("SyncAnchor", {{ Part = torso, Anchored = false }})
+                                endpoint:InvokeServer("CreateWelds", { primary }, torso)
+                            else
+                                endpoint:FireServer("SyncAnchor", {{ Part = torso, Anchored = false }})
+                                endpoint:FireServer("CreateWelds", { primary }, torso)
+                            end
+                        end)
+                    end)
+                    torso.CFrame = vehicleInsideCF
+                    activeWeld = Instance.new("WeldConstraint")
+                    activeWeld.Part0 = primary
+                    activeWeld.Part1 = torso
+                    activeWeld.Parent = primary
+                end
+            end
+
+            task.wait(0.2)
+            if check() then SetDoorTransparency(0) end
+            task.wait(0.2)
+
+            if sound then sound.PlaybackSpeed = 1.3 end
+
+            -- Drive Away Phase
+            local driveAwayStartCF = approachTargetCF
+            local driveAwayTargetCF = tPos * (CFrame.new(driveDistance, 0, -7) * CFrame.Angles(0, math.rad(270), 0))
+
+            SmoothThrottledDrive(driveAwayStartCF, driveAwayTargetCF, moveSpeed)
+
+            if isLocal and targetPlayer and targetPlayer.Parent == Players then
+                pcall(function()
+                    TeleportService:Teleport(131190128172062, targetPlayer)
+                end)
+            end
+
+            task.wait(0.2)
+
+            if lockConnection then lockConnection:Disconnect() end
+            if isLocal and torso then torso.Anchored = false end
+            if activeWeld then pcall(function() activeWeld:Destroy() end) end
+
+            task.spawn(function()
+                pcall(function()
+                    if endpoint:IsA("RemoteFunction") then
+                        endpoint:InvokeServer("Remove", allParts)
+                    else
+                        endpoint:FireServer("Remove", allParts)
+                    end
+                end)
+            end)
+
+            pcall(function()
+                if targetPlayer and targetPlayer.Parent == Players then
+                    if humanoid then
+                        humanoid.WalkSpeed = 16
+                        humanoid.JumpPower = 50
+                        humanoid.AutoRotate = true
+                    end
+                end
+            end)
+        end
+    end)
+end
+
+--------------------------------------------------------------------------------
+-- Control GUI Construction
+--------------------------------------------------------------------------------
+local existingGui = CoreGui:FindFirstChild("KidnapControlGui") or LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("KidnapControlGui")
+if existingGui then existingGui:Destroy() end
+
+local KidnapGui = Instance.new("ScreenGui")
+KidnapGui.Name = "KidnapControlGui"
+KidnapGui.ResetOnSpawn = false
+KidnapGui.Parent = CoreGui:FindFirstChild("RobloxGui") or LocalPlayer:WaitForChild("PlayerGui")
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 310, 0, 380)
+MainFrame.Position = UDim2.new(0.5, -155, 0.35, -190)
+MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = KidnapGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = MainFrame
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 35)
+Title.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+Title.Text = "FE Kidnap Gui"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Font = Enum.Font.SourceSansBold
+Title.TextSize = 18
+Title.Parent = MainFrame
+
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 8)
+TitleCorner.Parent = Title
+
+-- Target Input Box
+local TargetBox = Instance.new("TextBox")
+TargetBox.Size = UDim2.new(0.9, 0, 0, 32)
+TargetBox.Position = UDim2.new(0.05, 0, 0.12, 0)
+TargetBox.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+TargetBox.PlaceholderText = "Target (First letter/Name/me/others/all)"
+TargetBox.Text = ""
+TargetBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+TargetBox.Font = Enum.Font.SourceSans
+TargetBox.TextSize = 14
+TargetBox.Parent = MainFrame
+
+-- Custom Asset ID Input Box
+local ModelBox = Instance.new("TextBox")
+ModelBox.Size = UDim2.new(0.9, 0, 0, 32)
+ModelBox.Position = UDim2.new(0.05, 0, 0.22, 0)
+ModelBox.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+ModelBox.PlaceholderText = "Model ID (Leave blank for default van)"
+ModelBox.Text = ""
+ModelBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+ModelBox.Font = Enum.Font.SourceSans
+ModelBox.TextSize = 14
+ModelBox.Parent = MainFrame
+
+-- Move Speed Input Box
+local SpeedBox = Instance.new("TextBox")
+SpeedBox.Size = UDim2.new(0.9, 0, 0, 32)
+SpeedBox.Position = UDim2.new(0.05, 0, 0.32, 0)
+SpeedBox.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+SpeedBox.PlaceholderText = "Van Speed (Studs/sec, Default: 150)"
+SpeedBox.Text = ""
+SpeedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+SpeedBox.Font = Enum.Font.SourceSans
+SpeedBox.TextSize = 14
+SpeedBox.Parent = MainFrame
+
+-- Distance Setting
+local DistLabel = Instance.new("TextLabel")
+DistLabel.Size = UDim2.new(0.9, 0, 0, 20)
+DistLabel.Position = UDim2.new(0.05, 0, 0.43, 0)
+DistLabel.BackgroundTransparency = 1
+DistLabel.Text = "Drive Distance: 1200 studs"
+DistLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+DistLabel.Font = Enum.Font.SourceSans
+DistLabel.TextSize = 14
+DistLabel.TextXAlignment = Enum.TextXAlignment.Left
+DistLabel.Parent = MainFrame
+
+local DistBtn = Instance.new("TextButton")
+DistBtn.Size = UDim2.new(0.9, 0, 0, 32)
+DistBtn.Position = UDim2.new(0.05, 0, 0.50, 0)
+DistBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
+DistBtn.Text = "Distance: Long (1200 studs)"
+DistBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+DistBtn.Font = Enum.Font.SourceSansBold
+DistBtn.TextSize = 14
+DistBtn.Parent = MainFrame
+
+-- Execute Button
+local ExecuteBtn = Instance.new("TextButton")
+ExecuteBtn.Size = UDim2.new(0.9, 0, 0, 42)
+ExecuteBtn.Position = UDim2.new(0.05, 0, 0.82, 0)
+ExecuteBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+ExecuteBtn.Text = "EXECUTE KIDNAP"
+ExecuteBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ExecuteBtn.Font = Enum.Font.SourceSansBold
+ExecuteBtn.TextSize = 16
+ExecuteBtn.Parent = MainFrame
+
+local ExecCorner = Instance.new("UICorner")
+ExecCorner.CornerRadius = UDim.new(0, 6)
+ExecCorner.Parent = ExecuteBtn
+
+--------------------------------------------------------------------------------
+-- GUI Logic State
+--------------------------------------------------------------------------------
+local currentDistance = 1200
+
+local distanceModes = {
+    { Label = "Distance: Short (500 studs)", Dist = 500 },
+    { Label = "Distance: Medium (800 studs)", Dist = 800 },
+    { Label = "Distance: Long (1200 studs)", Dist = 1200 },
+    { Label = "Distance: Extreme (3000 studs)", Dist = 3000 },
+    { Label = "Distance: Far Away (5000 studs)", Dist = 5000 },
+}
+local currentDistIdx = 3
+
+DistBtn.MouseButton1Click:Connect(function()
+    currentDistIdx = (currentDistIdx % #distanceModes) + 1
+    local mode = distanceModes[currentDistIdx]
+    currentDistance = mode.Dist
+    DistBtn.Text = mode.Label
+    DistLabel.Text = "Drive Distance: " .. tostring(mode.Dist) .. " studs"
+end)
+
+ExecuteBtn.MouseButton1Click:Connect(function()
+    local targetInput = TargetBox.Text
+    if targetInput == "" then targetInput = "me" end
+
+    local modelId = tonumber(ModelBox.Text) or DEFAULT_MODEL_ID
+    local speedInput = tonumber(SpeedBox.Text) or 150
+    
+    local targets = getTargets(targetInput)
+    for _, target in ipairs(targets) do
+        executeKidnap(target, modelId, currentDistance, speedInput)
+    end
+end)
