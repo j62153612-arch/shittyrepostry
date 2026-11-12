@@ -1,0 +1,208 @@
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RS = game:GetService("ReplicatedStorage")
+
+local plr = Players.LocalPlayer
+local char = plr.Character or plr.CharacterAdded:Wait()
+local bag = plr:WaitForChild("Backpack")
+
+local MESH = "rbxassetid://14797474634"
+local TEX = "rbxassetid://14797476659"
+local SIREN = "9073808042"
+local BLAST = "133122797031364"
+
+local remote
+for _, t in pairs(bag:GetChildren()) do
+	if t:FindFirstChild("SyncAPI") and t.SyncAPI:FindFirstChild("ServerEndpoint") then
+		remote = t.SyncAPI.ServerEndpoint
+		break
+	end
+end
+if not remote and char then
+	for _, t in pairs(char:GetChildren()) do
+		if t:FindFirstChild("SyncAPI") and t.SyncAPI:FindFirstChild("ServerEndpoint") then
+			remote = t.SyncAPI.ServerEndpoint
+			break
+		end
+	end
+end
+if not remote then return end
+
+local function call(a, b, c, d)
+	local ok, res = pcall(function()
+		if d ~= nil then return remote:InvokeServer(a, b, c, d) end
+		if c ~= nil then return remote:InvokeServer(a, b, c) end
+		return remote:InvokeServer(a, b)
+	end)
+	return ok and res or nil
+end
+
+local function cmd(s)
+	pcall(function()
+		local h = RS:FindFirstChild("HDAdminHDClient") or RS:FindFirstChild("HDAdminClient")
+		if not h then return end
+		local sig = h:FindFirstChild("Signals")
+		if not sig then return end
+		local r = sig:FindFirstChild("RequestCommand") or sig:FindFirstChild("RequestCommandModification")
+		if r then r:InvokeServer(s) end
+	end)
+end
+
+local mid = Vector3.new(0, 0, 0)
+local floor = Workspace:FindFirstChild("Baseplate") or Workspace:FindFirstChildWhichIsA("BasePart")
+if floor then
+	mid = Vector3.new(floor.Position.X, floor.Position.Y + floor.Size.Y * 0.5, floor.Position.Z)
+end
+local gy = mid.Y + 3
+
+cmd(";music " .. SIREN)
+cmd(";m nuke incoming")
+task.wait(1.1)
+cmd(";m 3")
+task.wait(0.9)
+cmd(";m 2")
+task.wait(0.9)
+cmd(";m 1")
+task.wait(0.5)
+
+local function orient(y, r)
+	return CFrame.new(mid.X, y, mid.Z) * CFrame.Angles(math.rad(-90), r, 0)
+end
+
+local top = gy + 300
+local bomb = call("CreatePart", "Normal", orient(top, 0), Workspace)
+if not bomb then return end
+task.wait(0.1)
+call("SyncResize", {{Part = bomb, CFrame = orient(top, 0), Size = Vector3.new(14, 14, 32)}})
+call("SyncCollision", {{Part = bomb, CanCollide = false}})
+call("SyncMaterial", {{Part = bomb, Material = Enum.Material.Metal, Transparency = 0}})
+call("SyncColor", {{Part = bomb, Color = Color3.fromRGB(155, 155, 160), UnionColoring = false}})
+call("CreateMeshes", {{Part = bomb}})
+task.wait(0.1)
+call("SyncMesh", {{
+	Part = bomb,
+	MeshType = Enum.MeshType.FileMesh,
+	MeshId = MESH,
+	TextureId = TEX,
+	Scale = Vector3.new(2, 2, 2)
+}})
+
+local y, v, rot = top, 5, 0
+while y > gy do
+	v = v + 2.2
+	y = y - v
+	if y < gy then y = gy end
+	rot = rot + 0.15
+	pcall(function()
+		remote:InvokeServer("SyncMove", {{Part = bomb, CFrame = orient(y, rot)}})
+	end)
+	task.wait(0.016)
+end
+
+pcall(function() remote:InvokeServer("Remove", {bomb}) end)
+
+cmd(";music 0")
+task.wait(0.15)
+cmd(";music " .. BLAST)
+
+local hit = Vector3.new(mid.X, gy, mid.Z)
+for _, o in pairs(Players:GetPlayers()) do
+	if o ~= plr and o.Character then
+		local r = o.Character:FindFirstChild("HumanoidRootPart")
+		if r and (r.Position - hit).Magnitude < 160 then
+			cmd(";kill " .. o.Name)
+		end
+	end
+end
+
+local function ball(pos, sz, col)
+	local p = call("CreatePart", "Normal", CFrame.new(pos), Workspace)
+	if not p then return nil end
+	task.wait(0.03)
+	call("SyncResize", {{Part = p, CFrame = CFrame.new(pos), Size = sz}})
+	call("SyncCollision", {{Part = p, CanCollide = false}})
+	call("SyncMaterial", {{Part = p, Material = Enum.Material.Neon, Transparency = 0}})
+	call("SyncColor", {{Part = p, Color = col, UnionColoring = false}})
+	call("CreateMeshes", {{Part = p}})
+	task.wait(0.03)
+	call("SyncMesh", {{Part = p, MeshType = Enum.MeshType.Sphere, Scale = Vector3.new(1, 1, 1)}})
+	return p
+end
+
+local flash = ball(hit, Vector3.new(12, 12, 12), Color3.fromRGB(255, 255, 230))
+local stem = ball(hit + Vector3.new(0, 32, 0), Vector3.new(22, 65, 22), Color3.fromRGB(255, 125, 25))
+local head = ball(hit + Vector3.new(0, 90, 0), Vector3.new(75, 50, 75), Color3.fromRGB(255, 100, 18))
+local cap = ball(hit + Vector3.new(0, 110, 0), Vector3.new(95, 30, 95), Color3.fromRGB(255, 155, 45))
+
+local ring = call("CreatePart", "Normal", CFrame.new(hit + Vector3.new(0, 2, 0)), Workspace)
+if ring then
+	task.wait(0.04)
+	call("SyncResize", {{Part = ring, CFrame = CFrame.new(hit + Vector3.new(0, 2, 0)), Size = Vector3.new(40, 3, 40)}})
+	call("SyncCollision", {{Part = ring, CanCollide = false}})
+	call("SyncMaterial", {{Part = ring, Material = Enum.Material.Neon, Transparency = 0}})
+	call("SyncColor", {{Part = ring, Color = Color3.fromRGB(230, 230, 240), UnionColoring = false}})
+end
+
+task.spawn(function()
+	for i = 1, 36 do
+		local t = i / 36
+		pcall(function()
+			if flash then
+				local s = 12 + i * 12
+				remote:InvokeServer("SyncResize", {{Part = flash, CFrame = CFrame.new(hit), Size = Vector3.new(s, s, s)}})
+				remote:InvokeServer("SyncMaterial", {{Part = flash, Material = Enum.Material.Neon, Transparency = t}})
+			end
+			if stem then
+				local h = 65 + i * 5
+				local w = 22 + i * 1.5
+				remote:InvokeServer("SyncResize", {{Part = stem, CFrame = CFrame.new(hit + Vector3.new(0, h * 0.42, 0)), Size = Vector3.new(w * 0.7, h, w * 0.7)}})
+				remote:InvokeServer("SyncMaterial", {{Part = stem, Material = Enum.Material.Neon, Transparency = t * 0.8}})
+			end
+			if head then
+				local s = 75 + i * 6
+				remote:InvokeServer("SyncResize", {{Part = head, CFrame = CFrame.new(hit + Vector3.new(0, 90 + i * 2.8, 0)), Size = Vector3.new(s, s * 0.65, s)}})
+				remote:InvokeServer("SyncMaterial", {{Part = head, Material = Enum.Material.Neon, Transparency = t * 0.85}})
+			end
+			if cap then
+				local s = 95 + i * 4
+				remote:InvokeServer("SyncResize", {{Part = cap, CFrame = CFrame.new(hit + Vector3.new(0, 110 + i * 1.6, 0)), Size = Vector3.new(s, 28 + i, s)}})
+				remote:InvokeServer("SyncMaterial", {{Part = cap, Material = Enum.Material.Neon, Transparency = 0.05 + t}})
+			end
+			if ring then
+				local s = 40 + i * 10
+				remote:InvokeServer("SyncResize", {{Part = ring, CFrame = CFrame.new(hit + Vector3.new(0, 2, 0)), Size = Vector3.new(s, 2.5, s)}})
+				remote:InvokeServer("SyncMaterial", {{Part = ring, Material = Enum.Material.Neon, Transparency = t}})
+			end
+		end)
+		task.wait(0.03)
+	end
+	pcall(function()
+		if flash then remote:InvokeServer("Remove", {flash}) end
+		if stem then remote:InvokeServer("Remove", {stem}) end
+		if head then remote:InvokeServer("Remove", {head}) end
+		if cap then remote:InvokeServer("Remove", {cap}) end
+		if ring then remote:InvokeServer("Remove", {ring}) end
+	end)
+end)
+
+for i = 1, 16 do
+	task.spawn(function()
+		local off = Vector3.new(math.random(-50, 50), math.random(4, 40), math.random(-50, 50))
+		local sm = ball(hit + off, Vector3.new(14, 14, 14), Color3.fromRGB(28, 24, 20))
+		if not sm then return end
+		pcall(function()
+			remote:InvokeServer("SyncMaterial", {{Part = sm, Material = Enum.Material.SmoothPlastic, Transparency = 0.15}})
+		end)
+		for t = 1, 28 do
+			local p = hit + off + Vector3.new(0, t * 1.5, 0)
+			local s = 14 + t * 1.1
+			pcall(function()
+				remote:InvokeServer("SyncMove", {{Part = sm, CFrame = CFrame.new(p)}})
+				remote:InvokeServer("SyncResize", {{Part = sm, CFrame = CFrame.new(p), Size = Vector3.new(s, s, s)}})
+				remote:InvokeServer("SyncMaterial", {{Part = sm, Material = Enum.Material.SmoothPlastic, Transparency = 0.15 + t / 28 * 0.85}})
+			end)
+			task.wait(0.035)
+		end
+		pcall(function() remote:InvokeServer("Remove", {sm}) end)
+	end)
+end
