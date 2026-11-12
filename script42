@@ -1,0 +1,2521 @@
+-- thank and hate you shd0k1dd and his fellow ai for this script 
+
+-- fixed by me
+
+local player = game.Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local hum = char:WaitForChild("Humanoid")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local runService = game:GetService("RunService")
+
+task.spawn(function()
+    local hd = ReplicatedStorage:FindFirstChild("HDAdmin") or ReplicatedStorage:FindFirstChild("HDAdminHDClient")
+    if hd then
+        local signals = hd:FindFirstChild("Signals") or (hd:FindFirstChild("HDClient") and hd.HDClient:FindFirstChild("Signals"))
+        local req = signals and signals:FindFirstChild("RequestCommandSilent")
+        if req then 
+            pcall(function() req:InvokeServer(";invisible me") end)
+            
+        end
+    end
+end)
+
+local tool = player:FindFirstChild("SyncAPI", true) or ReplicatedStorage:FindFirstChild("SyncAPI", true)
+if not tool then return end
+local remote = tool:IsA("RemoteFunction") and tool or tool:FindFirstChild("ServerEndpoint")
+
+local partMap = {}
+local lastCF = {}
+_G.F3X_SyncActive = true
+
+local function GetVisualData(real)
+    local meshes, textures = {}, {}
+    for _, item in ipairs(real:GetDescendants()) do
+        if item:IsA("SpecialMesh") then
+            table.insert(meshes, {Part = nil, MeshType = item.MeshType, Scale = item.Scale, MeshId = item.MeshId, TextureId = item.TextureId})
+        elseif item:IsA("Decal") or item:IsA("Texture") then
+            table.insert(textures, {
+                Part = nil, Face = item.Face, Texture = item.Texture, Transparency = item.Transparency,
+                Color = item.Color3, TextureType = item.ClassName,
+                OffsetStudsU = item:IsA("Texture") and item.OffsetStudsU or 0,
+                OffsetStudsV = item:IsA("Texture") and item.OffsetStudsV or 0,
+                StudsPerTileU = item:IsA("Texture") and item.StudsPerTileU or 1,
+                StudsPerTileV = item:IsA("Texture") and item.StudsPerTileV or 1
+            })
+        end
+    end
+    if real:IsA("MeshPart") then
+        table.insert(meshes, {Part = nil, MeshType = Enum.MeshType.FileMesh, Scale = Vector3.new(1,1,1), MeshId = real.MeshId, TextureId = real.TextureID})
+    end
+    return meshes, textures
+end
+
+local function TrackChanges(real, fake)
+    local function update()
+        if real.Parent and fake.Parent then
+            
+            remote:InvokeServer("SyncColor", {{Part = fake, Color = real.Color, Transparency = real.Transparency}})
+
+            remote:InvokeServer("SyncResize", {{Part = fake, Size = real.Size, CFrame = real.CFrame}})
+        end
+    end
+    
+    real:GetPropertyChangedSignal("Color"):Connect(update)
+    real:GetPropertyChangedSignal("Transparency"):Connect(update)
+    real:GetPropertyChangedSignal("Size"):Connect(update)
+    real:GetPropertyChangedSignal("Material"):Connect(update)
+
+    for _, v in pairs(real:GetDescendants()) do
+
+	if v:IsA("SpecialMesh") then
+
+		local function syncMesh()
+			remote:InvokeServer("SyncMesh", {{
+				Part = fake,
+				MeshType = v.MeshType,
+				Scale = v.Scale,
+				MeshId = v.MeshId,
+				TextureId = v.TextureId
+			}})
+		end
+
+		v:GetPropertyChangedSignal("MeshId"):Connect(syncMesh)
+		v:GetPropertyChangedSignal("TextureId"):Connect(syncMesh)
+		v:GetPropertyChangedSignal("Scale"):Connect(syncMesh)
+
+	elseif v:IsA("Decal") or v:IsA("Texture") then
+
+		local function syncTexture()
+			remote:InvokeServer("SyncTexture", {{
+				Part = fake,
+				Face = v.Face,
+				Texture = v.Texture,
+				Transparency = v.Transparency,
+				Color = v:IsA("Texture") and v.Color3 or nil,
+				TextureType = v.ClassName,
+				OffsetStudsU = v:IsA("Texture") and v.OffsetStudsU or 0,
+				OffsetStudsV = v:IsA("Texture") and v.OffsetStudsV or 0,
+				StudsPerTileU = v:IsA("Texture") and v.StudsPerTileU or 1,
+				StudsPerTileV = v:IsA("Texture") and v.StudsPerTileV or 1
+			}})
+		end
+
+		v:GetPropertyChangedSignal("Texture"):Connect(syncTexture)
+		v:GetPropertyChangedSignal("Transparency"):Connect(syncTexture)
+
+		if v:IsA("Texture") then
+			v:GetPropertyChangedSignal("Color3"):Connect(syncTexture)
+			v:GetPropertyChangedSignal("OffsetStudsU"):Connect(syncTexture)
+			v:GetPropertyChangedSignal("OffsetStudsV"):Connect(syncTexture)
+			v:GetPropertyChangedSignal("StudsPerTileU"):Connect(syncTexture)
+			v:GetPropertyChangedSignal("StudsPerTileV"):Connect(syncTexture)
+		end
+	end
+end
+    
+
+    if not _G.F3X_DeathCleanup then
+	_G.F3X_DeathCleanup = true
+
+	hum.Died:Connect(function()
+
+		if _G.F3X_MoveLoop then
+			_G.F3X_MoveLoop:Disconnect()
+			_G.F3X_MoveLoop = nil
+		end
+
+		local removePacket = {}
+
+		for real, fake in pairs(partMap) do
+			if fake and fake.Parent then
+				removePacket[#removePacket + 1] = fake
+			end
+		end
+
+		if #removePacket > 0 then
+			pcall(function()
+				remote:InvokeServer("RemoveObjects", removePacket)
+			end)
+		end
+
+		table.clear(partMap)
+
+		if lastCF then
+			table.clear(lastCF)
+		end
+	end)
+end
+end
+local function SyncBodyPart(real)
+    if not real:IsA("BasePart")
+	or real.Name == "HumanoidRootPart"
+	or real:FindFirstChild("F3X_Synced")
+then
+	return
+end
+
+local visible = false
+
+if real.Transparency < 1 then
+	visible = true
+end
+
+for _, v in pairs(real:GetDescendants()) do
+	if v:IsA("Decal") or v:IsA("Texture") then
+		if v.Transparency < 1 and v.Texture ~= "" then
+			visible = true
+			break
+		end
+	elseif v:IsA("SpecialMesh") then
+	if v.TextureId ~= "" or v.MeshId ~= "" then
+		visible = true
+	end
+end
+end
+
+if not visible then
+	return
+end
+    Instance.new("BoolValue", real).Name = "F3X_Synced"
+
+    task.spawn(function()
+        local success, fake = pcall(function()
+	return remote:InvokeServer("CreatePart", "Normal", real.CFrame, workspace)
+end)
+        if success and fake then
+            partMap[real] = fake
+           
+
+            remote:InvokeServer("SyncAnchor", {{Part = fake, Anchored = true}})
+remote:InvokeServer("SyncCollision", {{Part = fake, CanCollide = false}})
+
+remote:InvokeServer("SyncMaterial", {{
+	Part = fake,
+	Material = real.Material
+}})
+
+remote:InvokeServer("SyncColor", {{
+	Part = fake,
+	Color = real.Color,
+	Transparency = real.Transparency
+}})
+
+remote:InvokeServer("SyncResize", {{
+	Part = fake,
+	Size = real.Size,
+	CFrame = real.CFrame
+}})
+
+            local meshes, textures = GetVisualData(real)
+            if #meshes > 0 then
+                for i in pairs(meshes) do meshes[i].Part = fake end
+                remote:InvokeServer("CreateMeshes", {{Part = fake}})
+                remote:InvokeServer("SyncMesh", meshes)
+            end
+           
+
+            if #textures > 0 then
+                local createPack = {}
+                for i in pairs(textures) do 
+                    textures[i].Part = fake 
+                    table.insert(createPack, {Part = fake, Face = textures[i].Face, TextureType = textures[i].TextureType})
+                end
+                remote:InvokeServer("CreateTextures", createPack)
+                task.wait(0.1)
+                remote:InvokeServer("SyncTexture", textures)
+            end
+
+local spot = real:FindFirstChildOfClass("SpotLight")
+
+if spot then
+	
+	remote:InvokeServer("CreateLights", {{
+		Part = fake,
+		LightType = "SpotLight"
+	}})
+
+	remote:InvokeServer("SyncLighting", {{
+		Part = fake,
+		LightType = "SpotLight",
+		Color = spot.Color,
+		Range = spot.Range,
+		Face = spot.Face,
+		Angle = spot.Angle,
+		Brightness = spot.Brightness,
+		Shadows = spot.Shadows
+	}})
+end
+
+local point = real:FindFirstChildOfClass("PointLight")
+
+if point then
+	
+	remote:InvokeServer("CreateLights", {{
+		Part = fake,
+		LightType = "PointLight"
+	}})
+
+	remote:InvokeServer("SyncLighting", {{
+		Part = fake,
+		LightType = "PointLight",
+		Color = point.Color,
+		Range = point.Range,
+		Brightness = point.Brightness,
+		Shadows = point.Shadows
+	}})
+end
+
+local surface = real:FindFirstChildOfClass("SurfaceLight")
+
+if surface then
+	
+	remote:InvokeServer("CreateLights", {{
+		Part = fake,
+		LightType = "SurfaceLight"
+	}})
+
+	remote:InvokeServer("SyncLighting", {{
+		Part = fake,
+		LightType = "SurfaceLight",
+		Color = surface.Color,
+		Range = surface.Range,
+		Face = surface.Face,
+		Angle = surface.Angle,
+		Brightness = surface.Brightness,
+		Shadows = surface.Shadows
+	}})
+end
+
+for _, object in pairs(real:GetChildren()) do
+	
+	if object:IsA("Fire")
+	or object:IsA("Smoke")
+	or object:IsA("Sparkles") then
+
+		local properties = {
+			Part = fake,
+			DecorationType = object.ClassName
+		}
+
+		if object:IsA("Fire") then
+			
+			properties.Color = object.Color
+			properties.SecondaryColor = object.SecondaryColor
+			properties.Heat = object.Heat
+			properties.Size = object.Size
+
+		elseif object:IsA("Smoke") then
+			
+			properties.Color = object.Color
+			properties.Opacity = object.Opacity
+			properties.RiseVelocity = object.RiseVelocity
+			properties.Size = object.Size
+
+		elseif object:IsA("Sparkles") then
+			
+			properties.SparkleColor = object.SparkleColor
+		end
+
+		remote:InvokeServer("SyncDecorate", {properties})
+	end
+end
+
+            TrackChanges(real, fake)
+
+            real.LocalTransparencyModifier = 1
+            for _, v in pairs(real:GetDescendants()) do if v:IsA("BasePart") or v:IsA("Decal") then v.LocalTransparencyModifier = 1 end end
+            
+for _, light in pairs(real:GetChildren()) do
+	
+	if light:IsA("PointLight")
+	or light:IsA("SpotLight")
+	or light:IsA("SurfaceLight") then
+		
+		local function syncLight()
+			
+			if fake.Parent then
+				
+				remote:InvokeServer("SyncLighting", {{
+					Part = fake,
+					LightType = light.ClassName,
+					Color = light.Color,
+					Range = light.Range,
+					Brightness = light.Brightness,
+					Shadows = light.Shadows,
+					Face = light:IsA("SpotLight") or light:IsA("SurfaceLight") and light.Face or nil,
+Angle = light:IsA("SpotLight") or light:IsA("SurfaceLight") and light.Angle or nil
+				}})
+			end
+		end
+
+		light:GetPropertyChangedSignal("Color"):Connect(syncLight)
+		light:GetPropertyChangedSignal("Brightness"):Connect(syncLight)
+		light:GetPropertyChangedSignal("Range"):Connect(syncLight)
+
+		if light:IsA("SpotLight") or light:IsA("SurfaceLight") then
+			light:GetPropertyChangedSignal("Angle"):Connect(syncLight)
+			light:GetPropertyChangedSignal("Face"):Connect(syncLight)
+		end
+	end
+end
+
+real.ChildAdded:Connect(function(child)
+
+	if child:IsA("PointLight")
+	or child:IsA("SpotLight")
+	or child:IsA("SurfaceLight") then
+
+		remote:InvokeServer("CreateLights", {{
+			Part = fake,
+			LightType = child.ClassName
+		}})
+
+		task.wait()
+
+		local data = {
+			Part = fake,
+			LightType = child.ClassName,
+			Color = child.Color,
+			Range = child.Range,
+			Brightness = child.Brightness,
+			Shadows = child.Shadows
+		}
+
+		if child:IsA("SpotLight") or child:IsA("SurfaceLight") then
+			data.Face = child.Face
+			data.Angle = child.Angle
+		end
+
+		remote:InvokeServer("SyncLighting", {{data}})
+
+		
+		local function syncLight()
+			
+			if fake.Parent then
+				
+				local update = {
+					Part = fake,
+					LightType = child.ClassName,
+					Color = child.Color,
+					Range = child.Range,
+					Brightness = child.Brightness,
+					Shadows = child.Shadows
+				}
+
+				if child:IsA("SpotLight") or child:IsA("SurfaceLight") then
+					update.Face = child.Face
+					update.Angle = child.Angle
+				end
+
+				remote:InvokeServer("SyncLighting", {{update}})
+			end
+		end
+
+		child:GetPropertyChangedSignal("Enabled"):Connect(syncLight)
+		child:GetPropertyChangedSignal("Brightness"):Connect(syncLight)
+		child:GetPropertyChangedSignal("Range"):Connect(syncLight)
+		child:GetPropertyChangedSignal("Color"):Connect(syncLight)
+	end
+end)
+real.ChildAdded:Connect(function(object)
+
+	if object:IsA("Fire")
+	or object:IsA("Smoke")
+	or object:IsA("Sparkles") then
+
+		local properties = {
+			Part = fake,
+			DecorationType = object.ClassName
+		}
+
+		if object:IsA("Fire") then
+			
+			properties.Color = object.Color
+			properties.SecondaryColor = object.SecondaryColor
+			properties.Heat = object.Heat
+			properties.Size = object.Size
+
+		elseif object:IsA("Smoke") then
+			
+			properties.Color = object.Color
+			properties.Opacity = object.Opacity
+			properties.RiseVelocity = object.RiseVelocity
+			properties.Size = object.Size
+
+		elseif object:IsA("Sparkles") then
+			
+			properties.SparkleColor = object.SparkleColor
+		end
+
+		remote:InvokeServer("SyncDecorate", {properties})
+	end
+end)
+            real.AncestryChanged:Connect(function(_, p) if not p then remote:InvokeServer("RemoveObjects", {fake}) end end)
+        end
+    end)
+end
+
+for _, v in pairs(char:GetDescendants()) do SyncBodyPart(v) end
+char.DescendantAdded:Connect(SyncBodyPart)
+local lastCF = {}
+local sendRate = 1/30
+local nextSend = 0
+
+local movingParts = {}
+local movingCount = 0
+
+if _G.F3X_MoveLoop then
+	_G.F3X_MoveLoop:Disconnect()
+end
+
+_G.F3X_MoveLoop = runService.RenderStepped:Connect(function()
+	local now = tick()
+
+	if now < nextSend then
+		return
+	end
+
+	nextSend = now + sendRate
+
+	table.clear(movingParts)
+	movingCount = 0
+
+	for real, fake in next, partMap do
+		if real.Parent and fake.Parent then
+			
+			local cf = real.CFrame
+			local old = lastCF[real]
+
+			if not old
+			or (old.Position - cf.Position).Magnitude > 0.01
+			or (old.LookVector - cf.LookVector).Magnitude > 0.01 then
+
+				lastCF[real] = cf
+
+				movingCount += 1
+				movingParts[movingCount] = {
+					Part = fake,
+					CFrame = cf
+				}
+			end
+		else
+			partMap[real] = nil
+			lastCF[real] = nil
+		end
+	end
+
+	if movingCount > 0 then
+		remote:InvokeServer("SyncMove", movingParts)
+	end
+end)
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local rq = ReplicatedStorage:WaitForChild("HDAdminHDClient").Signals.RequestCommandSilent
+
+wait(0.5)
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Debris = game:GetService("Debris")
+local TweenService = game:GetService("TweenService")
+
+local Player = Players.LocalPlayer
+local Character = Player.Character or Player.CharacterAdded:Wait()
+local Humanoid = Character:WaitForChild("Humanoid")
+local RootPart = Character:WaitForChild("HumanoidRootPart")
+local Torso = Character:WaitForChild("Torso")
+local Head = Character:WaitForChild("Head")
+local RightArm = Character:WaitForChild("Right Arm")
+local LeftArm = Character:WaitForChild("Left Arm")
+local RightLeg = Character:WaitForChild("Right Leg")
+local LeftLeg = Character:WaitForChild("Left Leg")
+local Mouse = Player:GetMouse()
+
+_G.OmniGod = _G.OmniGod or {}
+_G.OmniGod.Character = Character
+_G.OmniGod.Humanoid = Humanoid
+_G.OmniGod.RootPart = RootPart
+_G.OmniGod.Torso = Torso
+_G.OmniGod.Head = Head
+_G.OmniGod.RightArm = RightArm
+_G.OmniGod.LeftArm = LeftArm
+_G.OmniGod.RightLeg = RightLeg
+_G.OmniGod.LeftLeg = LeftLeg
+_G.OmniGod.Mouse = Mouse
+
+local function Create(instanceType)
+    return function(properties)
+        local instance = Instance.new(instanceType)
+        for k, v in pairs(properties) do
+            if k ~= "Parent" then
+                pcall(function() instance[k] = v end)
+            end
+        end
+        if properties.Parent then
+            instance.Parent = properties.Parent
+        end
+        return instance
+    end
+end
+
+local cf = CFrame.new
+local v3 = Vector3.new
+local c3 = Color3.new
+local angles = CFrame.Angles
+local rad = math.rad
+
+_G.OmniGod.Debounces = {
+    CanAttack = true,
+    NoIdl = false,
+    Slashing = false,
+    Slashed = false,
+    RPunch = false,
+    RPunched = false,
+    LPunch = false,
+    LPunched = false,
+    on = false
+}
+
+local function Lerp(c1, c2, al)
+    local com1 = {c1.X, c1.Y, c1.Z, c1:toEulerAnglesXYZ()}
+    local com2 = {c2.X, c2.Y, c2.Z, c2:toEulerAnglesXYZ()}
+    for i, v in pairs(com1) do
+        com1[i] = v + (com2[i] - v) * al
+    end
+    return CFrame.new(com1[1], com1[2], com1[3]) * CFrame.Angles(select(4, unpack(com1)))
+end
+_G.OmniGod.Lerp = Lerp
+
+local function newWeld(wp0, wp1, wc0x, wc0y, wc0z)
+    local wld = Instance.new("Weld", wp1)
+    wld.Part0 = wp0
+    wld.Part1 = wp1
+    wld.C0 = CFrame.new(wc0x, wc0y, wc0z)
+    return wld
+end
+
+for _, v in pairs(Character:GetChildren()) do
+    if v:IsA("Accessory") then
+        v:Destroy()
+    end
+end
+
+-- 変換開始
+local Transforming = true
+Humanoid.WalkSpeed = 0
+
+Player:ClearCharacterAppearance()
+wait(0.1)
+
+for _, part in pairs({Head, Torso, RightArm, LeftArm, RightLeg, LeftLeg}) do
+    part.BrickColor = BrickColor.new("Really black")
+end
+
+if Head:FindFirstChild("face") then
+    Head.face:Destroy()
+end
+
+local function CreateSelectionBox(part, color)
+    local box = Instance.new("SelectionBox", part)
+    box.Adornee = part
+    box.Color = BrickColor.new(color)
+    box.LineThickness = 0.01
+    box.Transparency = 0
+    return box
+end
+
+local selectionBoxes = {}
+table.insert(selectionBoxes, CreateSelectionBox(Torso, "Lime green"))
+table.insert(selectionBoxes, CreateSelectionBox(RightArm, "Lime green"))
+table.insert(selectionBoxes, CreateSelectionBox(LeftArm, "Lime green"))
+table.insert(selectionBoxes, CreateSelectionBox(RightLeg, "Lime green"))
+table.insert(selectionBoxes, CreateSelectionBox(LeftLeg, "Lime green"))
+
+local LightOnBody = Instance.new("PointLight", Head)
+LightOnBody.Brightness = 0
+LightOnBody.Range = 20
+LightOnBody.Color = Color3.new(0, 0.88, 0)
+
+local GodOfDestruction = Instance.new("Model", Torso)
+GodOfDestruction.Name = " "
+
+local npcHumanoid = Instance.new("Humanoid", GodOfDestruction)
+local npcTorso = Instance.new("Part", GodOfDestruction)
+npcTorso.Size = Vector3.new(2, 2, 1)
+npcTorso.BrickColor = BrickColor.new("Really black")
+npcTorso.Name = "Torso"
+npcTorso.Position = RootPart.Position + Vector3.new(0, 0, -10)
+
+local npcHead = Instance.new("Part", GodOfDestruction)
+npcHead.Size = Vector3.new(1.25, 1.25, 1.25)
+npcHead.BrickColor = BrickColor.new("Really black")
+npcHead.Name = "Head"
+
+local headMesh = Instance.new("SpecialMesh", npcHead)
+headMesh.MeshType = "Head"
+
+local npcLArm = Instance.new("Part", GodOfDestruction)
+npcLArm.Size = Vector3.new(1, 2, 1)
+npcLArm.BrickColor = BrickColor.new("Really black")
+npcLArm.Name = "Left Arm"
+
+local npcRArm = Instance.new("Part", GodOfDestruction)
+npcRArm.Size = Vector3.new(1, 2, 1)
+npcRArm.BrickColor = BrickColor.new("Really black")
+npcRArm.Name = "Right Arm"
+
+local npcLLeg = Instance.new("Part", GodOfDestruction)
+npcLLeg.Size = Vector3.new(1, 2, 1)
+npcLLeg.BrickColor = BrickColor.new("Really black")
+npcLLeg.Name = "Left Leg"
+
+local npcRLeg = Instance.new("Part", GodOfDestruction)
+npcRLeg.Size = Vector3.new(1, 2, 1)
+npcRLeg.BrickColor = BrickColor.new("Really black")
+npcRLeg.Name = "Right Leg"
+
+-- NPC Welds
+local headWeld = Instance.new("Weld", npcHead)
+headWeld.Part0 = npcHead
+headWeld.Part1 = npcTorso
+headWeld.C0 = CFrame.new(0, -1.5, 0)
+
+local larmWeld = Instance.new("Weld", npcTorso)
+larmWeld.Part0 = npcTorso
+larmWeld.Part1 = npcLArm
+larmWeld.C0 = CFrame.new(1.5, 0, 0)
+
+local rarmWeld = Instance.new("Weld", npcTorso)
+rarmWeld.Part0 = npcTorso
+rarmWeld.Part1 = npcRArm
+rarmWeld.C0 = CFrame.new(-1.5, 0, 0)
+
+local rlegWeld = Instance.new("Weld", npcTorso)
+rlegWeld.Part0 = npcTorso
+rlegWeld.Part1 = npcRLeg
+rlegWeld.C0 = CFrame.new(-0.5, -2, 0)
+
+local llegWeld = Instance.new("Weld", npcTorso)
+llegWeld.Part0 = npcTorso
+llegWeld.Part1 = npcLLeg
+llegWeld.C0 = CFrame.new(0.5, -2, 0)
+
+local npcToPlayer = Instance.new("Weld", Torso)
+npcToPlayer.Part0 = Torso
+npcToPlayer.Part1 = npcTorso
+npcToPlayer.C0 = CFrame.new(0, 0, -10) * CFrame.Angles(0, math.rad(180), 0)
+
+-- NPC SelectionBoxes
+CreateSelectionBox(npcTorso, "Really red")
+CreateSelectionBox(npcRArm, "Really red")
+CreateSelectionBox(npcLArm, "Really red")
+CreateSelectionBox(npcRLeg, "Really red")
+CreateSelectionBox(npcLLeg, "Really red")
+
+local npcLight = Instance.new("PointLight", npcHead)
+npcLight.Brightness = 0
+npcLight.Range = 20
+npcLight.Color = Color3.new(0.88, 0, 0)
+
+-- NPC Billboard
+local txt = Instance.new("BillboardGui", GodOfDestruction)
+txt.Adornee = npcHead
+txt.Name = "_status"
+txt.Size = UDim2.new(2, 0, 1.2, 0)
+txt.StudsOffset = Vector3.new(-9, 8, 0)
+
+local text = Instance.new("TextLabel", txt)
+text.Size = UDim2.new(10, 0, 7, 0)
+text.FontSize = "Size24"
+text.TextScaled = true
+text.TextTransparency = 0
+text.BackgroundTransparency = 1
+text.TextStrokeTransparency = 0
+text.Font = "Antique"
+text.TextStrokeColor3 = Color3.new(0.88, 0, 0)
+text.TextColor3 = Color3.new(0, 0, 0)
+text.Text = " "
+
+-- 会話シーン
+local function NPCChat(message, color)
+    pcall(function()
+        game:GetService("Chat"):Chat(Head, message, color)
+    end)
+end
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TextChatService = game:GetService("TextChatService")
+
+local function ForceChat(msg)
+    
+    if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+        local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
+        pcall(function()
+            channel:SendAsync(msg)
+        end)
+    else
+        
+        local chatEvent = ReplicatedStorage:WaitForChild("DefaultChatSystemChatEvents")
+            :WaitForChild("SayMessageRequest")
+        pcall(function()
+            chatEvent:FireServer(msg, "All")
+        end)
+    end
+end
+
+ForceChat("If we fuse...we will become the omni god..")
+wait(4)
+ForceChat("No one will be able to stop us...")
+wait(4)
+ForceChat("Lets do this...")
+wait(2)
+
+-- 融合アニメーション
+local close = -10
+for i = 1, 10 do
+    wait(0.2)
+    close = close + 1
+    npcToPlayer.C0 = CFrame.new(0, 0, close) * CFrame.Angles(0, math.rad(180), 0)
+end
+
+-- NPCを削除
+GodOfDestruction:Destroy()
+wait(0.1)
+
+-- Weld設定
+newWeld(Torso, LeftArm, -1.5, 0.5, 0)
+LeftArm.Weld.C1 = CFrame.new(0, 0.5, 0)
+newWeld(Torso, RightArm, 1.5, 0.5, 0)
+RightArm.Weld.C1 = CFrame.new(0, 0.5, 0)
+newWeld(Torso, Head, 0, 1.5, 0)
+newWeld(Torso, LeftLeg, -0.5, -1, 0)
+LeftLeg.Weld.C1 = CFrame.new(0, 1, 0)
+newWeld(Torso, RightLeg, 0.5, -1, 0)
+RightLeg.Weld.C1 = CFrame.new(0, 1, 0)
+newWeld(RootPart, Torso, 0, -1, 0)
+Torso.Weld.C1 = CFrame.new(0, -1, 0)
+
+_G.OmniGod.Welds = {
+    RightArm = RightArm.Weld,
+    LeftArm = LeftArm.Weld,
+    Head = Head.Weld,
+    Torso = Torso.Weld,
+    LeftLeg = LeftLeg.Weld,
+    RightLeg = RightLeg.Weld
+}
+
+-- 変換エフェクト
+local fx = Instance.new("Part", Torso)
+fx.Anchored = true
+fx.Material = "Neon"
+fx.CanCollide = false
+fx.Locked = true
+fx.Transparency = 1
+fx.Size = Vector3.new(1, 1, 1)
+fx.TopSurface = "SmoothNoOutlines"
+fx.BottomSurface = "SmoothNoOutlines"
+fx.BrickColor = BrickColor.new("Really black")
+
+local fxm = Instance.new("SpecialMesh", fx)
+fxm.MeshType = "Sphere"
+fxm.Scale = Vector3.new(1, 1, 1)
+
+-- 変換サウンド
+local transformSound = Instance.new("Sound", Torso)
+transformSound.SoundId = "rbxassetid://93724183"
+transformSound.Pitch = 0.5
+transformSound.Volume = 1
+transformSound.Looped = false
+transformSound:Play()
+
+-- パーティクル
+local glowz = Instance.new("ParticleEmitter", fx)
+glowz.LightEmission = 1
+glowz.Texture = "rbxassetid:// "
+glowz.Color = ColorSequence.new(Color3.new(0.33, 0, 0.5))
+glowz.Size = NumberSequence.new(5)
+glowz.Speed = NumberRange.new(25, 50)
+glowz.LockedToPart = false
+glowz.Transparency = NumberSequence.new(0.75)
+glowz.RotSpeed = NumberRange.new(-2000, 2000)
+glowz.Lifetime = NumberRange.new(1)
+glowz.Rate = 50000
+glowz.VelocitySpread = 9001
+
+-- 膨張アニメーション
+local value = 1
+for i = 1, 20 do
+    RunService.RenderStepped:Wait()
+    value = value - 0.05
+    fx.Transparency = fx.Transparency - (1/20)
+    fx.CFrame = Torso.CFrame
+    fxm.Scale = fxm.Scale + Vector3.new(value, value, value)
+end
+
+wait(1)
+
+-- SelectionBox更新
+for _, box in pairs(selectionBoxes) do
+    box:Destroy()
+end
+selectionBoxes = {}
+
+table.insert(selectionBoxes, CreateSelectionBox(Torso, "Royal purple"))
+table.insert(selectionBoxes, CreateSelectionBox(RightArm, "Royal purple"))
+table.insert(selectionBoxes, CreateSelectionBox(LeftArm, "Royal purple"))
+table.insert(selectionBoxes, CreateSelectionBox(RightLeg, "Royal purple"))
+table.insert(selectionBoxes, CreateSelectionBox(LeftLeg, "Royal purple"))
+
+LightOnBody:Destroy()
+LightOnBody = Instance.new("PointLight", Head)
+LightOnBody.Brightness = 0
+LightOnBody.Range = 20
+LightOnBody.Color = Color3.new(0.66, 0, 1)
+
+-- 目のエフェクト
+local Orbd = Instance.new("Part", Character)
+Orbd.Name = "Orbd"
+Orbd.Shape = Enum.PartType.Ball
+Orbd.CanCollide = false
+Orbd.BrickColor = BrickColor.new("Royal purple")
+Orbd.Transparency = 0
+Orbd.Material = "Neon"
+Orbd.Size = Vector3.new(0.1, 0.1, 0.1)
+Orbd.TopSurface = Enum.SurfaceType.Smooth
+Orbd.BottomSurface = Enum.SurfaceType.Smooth
+
+local weld1 = Instance.new("Weld", Orbd)
+weld1.Part0 = Head
+weld1.Part1 = Orbd
+weld1.C1 = CFrame.new(-0.2, -0.2, 0.5)
+
+local glov = Instance.new("PointLight", Orbd)
+glov.Brightness = 0
+glov.Range = 20
+glov.Color = Color3.new(1, 0, 1)
+
+local Orbvc = Instance.new("Part", Character)
+Orbvc.Name = "Orbvc"
+Orbvc.Shape = Enum.PartType.Ball
+Orbvc.CanCollide = false
+Orbvc.BrickColor = BrickColor.new("Royal purple")
+Orbvc.Transparency = 0
+Orbvc.Material = "Neon"
+Orbvc.Size = Vector3.new(0.1, 0.1, 0.1)
+Orbvc.TopSurface = Enum.SurfaceType.Smooth
+Orbvc.BottomSurface = Enum.SurfaceType.Smooth
+
+local weld2 = Instance.new("Weld", Orbvc)
+weld2.Part0 = Head
+weld2.Part1 = Orbvc
+weld2.C1 = CFrame.new(0.2, -0.2, 0.5)
+
+local glo = Instance.new("PointLight", Orbvc)
+glo.Brightness = 0
+glo.Range = 20
+glo.Color = Color3.new(1, 0, 1)
+
+glowz.Rate = 0
+wait(1)
+
+-- 完了エフェクト
+for i = 1, 20 do
+    RunService.RenderStepped:Wait()
+    fx.Transparency = fx.Transparency + (1/20)
+end
+
+fx:Destroy()
+Transforming = false
+Humanoid.WalkSpeed = 16
+
+-- 最終Billboard
+local finalTxt = Instance.new("BillboardGui", Character)
+finalTxt.Adornee = Head
+finalTxt.Name = "_status"
+finalTxt.Size = UDim2.new(2, 0, 1.2, 0)
+finalTxt.StudsOffset = Vector3.new(-9, 8, 0)
+
+local finalText = Instance.new("TextLabel", finalTxt)
+finalText.Size = UDim2.new(10, 0, 7, 0)
+finalText.FontSize = "Size24"
+finalText.TextScaled = true
+finalText.TextTransparency = 0
+finalText.BackgroundTransparency = 1
+finalText.TextStrokeTransparency = 0
+finalText.Font = "Antique"
+finalText.TextStrokeColor3 = Color3.new(0.66, 0, 1)
+finalText.TextColor3 = Color3.new(0, 0, 0)
+finalText.Text = " "
+rq:InvokeServer(";titlebk me The Omni-God of Erradication")
+
+-- HP設定
+Humanoid.MaxHealth = math.huge
+wait(0.1)
+Humanoid.Health = math.huge
+
+print("Part 1/5 Complete - Transformation Done!")
+print("Loading Part 2...")
+
+-- Omni God of Destruction - Part 2/5
+-- 飛行システムとアニメーション
+-- Part 1の後に実行されます
+
+local RunService = game:GetService("RunService")
+local Character = _G.OmniGod.Character
+local Humanoid = _G.OmniGod.Humanoid
+local RootPart = _G.OmniGod.RootPart
+local Torso = _G.OmniGod.Torso
+local Head = _G.OmniGod.Head
+local RightArm = _G.OmniGod.RightArm
+local LeftArm = _G.OmniGod.LeftArm
+local RightLeg = _G.OmniGod.RightLeg
+local LeftLeg = _G.OmniGod.LeftLeg
+local Mouse = _G.OmniGod.Mouse
+local Welds = _G.OmniGod.Welds
+local Lerp = _G.OmniGod.Lerp
+local Debounces = _G.OmniGod.Debounces
+
+-- 飛行システム変数
+local flying = false
+local flySpeed = 0
+local MAX_FLY_SPEED = 150
+local keysDown = {}
+
+local floatBP = Instance.new("BodyPosition")
+floatBP.maxForce = Vector3.new(0, math.huge, 0)
+
+local flyBV = Instance.new("BodyVelocity")
+flyBV.maxForce = Vector3.new(9e9, 9e9, 9e9)
+
+local turnBG = Instance.new("BodyGyro")
+turnBG.maxTorque = Vector3.new(math.huge, math.huge, math.huge)
+
+_G.OmniGod.Flying = false
+
+-- キー入力管理
+Mouse.KeyDown:Connect(function(key)
+    key = key:lower()
+    keysDown[key] = true
+    
+    -- Fキー: 飛行切り替え
+    if key == "f" then
+        flying = not flying
+        _G.OmniGod.Flying = flying
+        
+        if flying then
+            floatBP.Parent = RootPart
+            flyBV.Parent = RootPart
+            turnBG.Parent = RootPart
+            Humanoid.PlatformStand = true
+        else
+            floatBP.Parent = nil
+            flyBV.Parent = nil
+            turnBG.Parent = nil
+            RootPart.Velocity = Vector3.new()
+            Humanoid.PlatformStand = false
+        end
+    end
+end)
+
+Mouse.KeyUp:Connect(function(key)
+    keysDown[key:lower()] = nil
+end)
+
+-- 飛行更新ループ
+local function updateFly()
+    if not flying then return end
+    
+    local forward = 0
+    local side = 0
+    
+    if keysDown.w then forward = forward + 1 end
+    if keysDown.s then forward = forward - 1 end
+    if keysDown.a then side = side - 1 end
+    if keysDown.d then side = side + 1 end
+    
+    local canFly = (forward ~= 0 or side ~= 0)
+    
+    if canFly then
+        turnBG.Parent = RootPart
+        floatBP.Parent = nil
+        flyBV.Parent = RootPart
+        
+        flySpeed = flySpeed + 1 + (flySpeed / MAX_FLY_SPEED)
+        if flySpeed > MAX_FLY_SPEED then 
+            flySpeed = MAX_FLY_SPEED 
+        end
+    else
+        floatBP.position = RootPart.Position
+        floatBP.Parent = RootPart
+        
+        flySpeed = flySpeed - 1
+        if flySpeed < 0 then 
+            flySpeed = 0 
+        end
+    end
+    
+    local cam = workspace.CurrentCamera
+    local camCF = cam.CoordinateFrame
+    
+    flyBV.velocity = ((camCF.lookVector * forward) + 
+                     (camCF * CFrame.new(side, forward * 0.2, 0).p) - 
+                     camCF.p) * flySpeed
+    
+    turnBG.cframe = camCF * CFrame.Angles(-math.rad(forward * (flySpeed / MAX_FLY_SPEED)), 0, 0)
+end
+
+-- アニメーション変数
+local animpose = "Idle"
+local lastanimpose = "Idle"
+local sine = 0
+local change = 1
+
+-- 地面波エフェクト
+local function GroundWave()
+    local HandCF = CFrame.new(RootPart.Position - Vector3.new(0, 3, 0)) * 
+                   CFrame.Angles(math.rad(90), math.rad(0), math.rad(0))
+    local Colors = {"Royal purple", "Really black"}
+    
+    local wave = Instance.new("Part", Torso)
+    wave.BrickColor = BrickColor.new(Colors[math.random(1, #Colors)])
+    wave.Anchored = true
+    wave.CanCollide = false
+    wave.Locked = true
+    wave.Size = Vector3.new(1, 1, 1)
+    wave.TopSurface = "Smooth"
+    wave.BottomSurface = "Smooth"
+    wave.Transparency = 0.35
+    wave.CFrame = HandCF
+    
+    local wm = Instance.new("SpecialMesh", wave)
+    wm.MeshId = "rbxassetid://3270017"
+    wm.Scale = Vector3.new(1, 1, 1)
+    
+    coroutine.wrap(function()
+        for i = 1, 30 do
+            wm.Scale = Vector3.new(50 + i * 50, 50, 1 + i * 50)
+            wave.Size = wm.Scale
+            wave.CFrame = HandCF
+            wave.Transparency = i / 30
+            wait()
+        end
+        wave:Destroy()
+    end)()
+end
+
+-- パーティクルエフェクト
+local function Particle(PrimaryColor)
+    local Part = Instance.new("Part", Torso)
+    Part.BrickColor = BrickColor.new(PrimaryColor)
+    Part.Anchored = true
+    Part.Transparency = 0.3
+    Part.CanCollide = false
+    Part.CFrame = Torso.CFrame * 
+                  CFrame.new(math.random(-10, 10), math.random(-15, 15), math.random(-10, 10)) * 
+                  CFrame.Angles(math.random(), math.random(), math.random())
+    
+    local Mesh = Instance.new("BlockMesh", Part)
+    Mesh.Scale = Vector3.new(0.05, 0.1, 0.1)
+    
+    spawn(function()
+        for i = 1, 40 do
+            Part.Transparency = Part.Transparency + 0.0125
+            Part.CFrame = Part.CFrame * CFrame.new(0, -0.07, 0)
+            RunService.RenderStepped:Wait()
+        end
+        Part:Destroy()
+    end)
+end
+
+rq:InvokeServer(";sparkles me")
+
+-- 浮遊パーツエフェクト
+local function FloatPart()
+    local Part = Instance.new("Part", Torso)
+    Part.CFrame = CFrame.new(Torso.Position.X, workspace.Base.Position.Y + 1, Torso.Position.Z) * 
+                  CFrame.fromEulerAnglesXYZ(86.4, 0, 87)
+    Part.Anchored = true
+    Part.Material = "Neon"
+    Part.CanCollide = false
+    Part.BrickColor = BrickColor.new("Royal purple")
+    
+    local Mesh = Instance.new("SpecialMesh", Part)
+    Mesh.Scale = Vector3.new(4, 4, 0.2)
+    Mesh.MeshId = "rbxassetid://3270017"
+    Mesh.VertexColor = Vector3.new(0, 170, 255)
+    
+    spawn(function()
+        for i = 1, 30 do
+            Mesh.Scale = Mesh.Scale + Vector3.new(0.04, 0.04, 0)
+            Part.Transparency = Part.Transparency + 0.035
+            RunService.RenderStepped:Wait()
+        end
+        Part:Destroy()
+    end)
+end
+
+-- デブリエフェクト
+local custommath = {}
+for i = 25, 100 do table.insert(custommath, i) end
+for i = -100, -25 do table.insert(custommath, i) end
+
+local function FDebris()
+    if not _G.OmniGod.Charging then return end
+    
+    local p = Instance.new("Part", Torso)
+    p.formFactor = "Custom"
+    p.Size = Vector3.new(1, 1, 1)
+    p.BrickColor = BrickColor.new("Dark indigo")
+    p.CanCollide = false
+    p.Transparency = 0.2
+    p.Anchored = true
+    p.Locked = true
+    p.Material = "Neon"
+    
+    local s = math.random(1, 40) / 10
+    local m = Instance.new("BlockMesh", p)
+    m.Scale = Vector3.new(s, s, s)
+    
+    p.CFrame = Torso.CFrame * 
+               CFrame.new(custommath[math.random(1, #custommath)] / 10, 
+                         -math.random(5, 7), 
+                         custommath[math.random(1, #custommath)] / 10) * 
+               CFrame.Angles(math.random(), math.random(), math.random())
+    
+    spawn(function()
+        while RunService.RenderStepped:Wait() do
+            if p.Transparency >= 1 then 
+                p:Destroy() 
+                break 
+            end
+            p.CFrame = p.CFrame * CFrame.Angles(math.rad(2), math.rad(2), math.rad(2)) + 
+                       Vector3.new(0, 0.2, 0)
+            p.Transparency = p.Transparency + 0.01
+        end
+    end)
+end
+
+-- メインアニメーションループ
+RunService.RenderStepped:Connect(function()
+    updateFly()
+    
+    sine = sine + change
+    
+    -- アニメーション判定
+    local torsoVel = (RootPart.Velocity * Vector3.new(1, 0, 1)).Magnitude
+    
+    if Humanoid.Sit then
+        animpose = "Sitting"
+    elseif torsoVel < 2 then
+        animpose = "Idle"
+    elseif torsoVel < 20 then
+        animpose = "Walking"
+    elseif torsoVel > 20 then
+        animpose = "Running"
+    end
+    
+    if flying then
+        animpose = "Flying"
+    end
+    
+    -- アニメーション適用
+    if not Debounces.NoIdl then
+        if animpose == "Idle" then
+            change = 0.5
+            
+            Welds.RightArm.C0 = Lerp(Welds.RightArm.C0, 
+                CFrame.new(1.5, 0.62 + 0.1 * math.cos(sine/10), 0) * 
+                CFrame.Angles(math.rad(-10), math.rad(-10), math.rad(14 + 2 * math.cos(sine/10))), 
+                0.4)
+            
+            Welds.LeftArm.C0 = Lerp(Welds.LeftArm.C0, 
+                CFrame.new(-1.5, 0.62 + 0.1 * math.cos(sine/10), 0) * 
+                CFrame.Angles(math.rad(-20), math.rad(6), math.rad(-10 - 2 * math.cos(sine/10))), 
+                0.4)
+            
+            Welds.Head.C0 = Lerp(Welds.Head.C0, 
+                CFrame.new(0, 1.5, -0.2) * 
+                CFrame.Angles(math.rad(-14 + 1 * math.cos(sine/10)), math.rad(20), 0), 
+                0.2)
+            
+            Welds.Torso.C0 = Lerp(Welds.Torso.C0, 
+                CFrame.new(0, 1 - 0.16 * math.cos(sine/10), 0) * 
+                CFrame.Angles(0, math.rad(-20), 0), 
+                0.05)
+            
+            Welds.LeftLeg.C0 = Lerp(Welds.LeftLeg.C0, 
+                CFrame.new(-0.5, 0 - 0.1 * math.cos(sine/10), -0.55) * 
+                CFrame.Angles(math.rad(-10 + 1 * math.cos(sine/10)), math.rad(10), 
+                             math.rad(-2 * math.cos(sine/10))), 
+                0.4)
+            
+            Welds.RightLeg.C0 = Lerp(Welds.RightLeg.C0, 
+                CFrame.new(0.5, -1 - 0.1 * math.cos(sine/10), 0) * 
+                CFrame.Angles(0, math.rad(-10), math.rad(2 * math.cos(sine/10))), 
+                0.4)
+                
+        elseif animpose == "Walking" then
+            change = 1
+            
+            Welds.RightArm.C0 = Lerp(Welds.RightArm.C0, 
+                CFrame.new(1.5, 0.55, 0) * 
+                CFrame.Angles(math.rad(-16), math.rad(-12), math.rad(10 + 2 * math.cos(sine/14))), 
+                0.2)
+            
+            Welds.LeftArm.C0 = Lerp(Welds.LeftArm.C0, 
+                CFrame.new(-1.5, 0.55, 0) * 
+                CFrame.Angles(math.rad(-16), math.rad(12), math.rad(-10 - 2 * math.cos(sine/14))), 
+                0.2)
+            
+            Welds.Head.C0 = Lerp(Welds.Head.C0, 
+                CFrame.new(0, 1.5, -0.2) * 
+                CFrame.Angles(math.rad(-14), 0, 0), 
+                0.4)
+            
+            Welds.Torso.C0 = Lerp(Welds.Torso.C0, 
+                CFrame.new(0, 0 - 0.1 * math.cos(sine/14), 0) * 
+                CFrame.Angles(math.rad(-10), 0, 0), 
+                0.05)
+            
+            Welds.LeftLeg.C0 = Lerp(Welds.LeftLeg.C0, 
+                CFrame.new(-0.5, -1, 0) * 
+                CFrame.Angles(math.rad(-8), 0, math.rad(-8)), 
+                0.4)
+            
+            Welds.RightLeg.C0 = Lerp(Welds.RightLeg.C0, 
+                CFrame.new(0.5, -1, 0) * 
+                CFrame.Angles(math.rad(-8), 0, math.rad(8)), 
+                0.4)
+                
+        elseif animpose == "Running" then
+            change = 1
+            
+            Welds.RightArm.C0 = Lerp(Welds.RightArm.C0, 
+                CFrame.new(1.5, 0.35, 0.4) * 
+                CFrame.Angles(math.rad(-30), math.rad(14), math.rad(-30 + 2 * math.cos(sine/14))), 
+                0.2)
+            
+            Welds.LeftArm.C0 = Lerp(Welds.LeftArm.C0, 
+                CFrame.new(-1.2, 0.55, -0.4) * 
+                CFrame.Angles(math.rad(110), math.rad(0), math.rad(40 - 2 * math.cos(sine/14))), 
+                0.2)
+            
+            Welds.Head.C0 = Lerp(Welds.Head.C0, 
+                CFrame.new(0, 1.5, 0.2) * 
+                CFrame.Angles(math.rad(20), math.rad(10), 0), 
+                0.4)
+            
+            Welds.Torso.C0 = Lerp(Welds.Torso.C0, 
+                CFrame.new(0, 0 - 0.1 * math.cos(sine/14), 0) * 
+                CFrame.Angles(math.rad(-40), math.rad(-10), 0), 
+                0.2)
+            
+            Welds.LeftLeg.C0 = Lerp(Welds.LeftLeg.C0, 
+                CFrame.new(-0.5, 0, -1.2) * 
+                CFrame.Angles(math.rad(-20), math.rad(10), 0), 
+                0.4)
+            
+            Welds.RightLeg.C0 = Lerp(Welds.RightLeg.C0, 
+                CFrame.new(0.5, -1, 0) * 
+                CFrame.Angles(math.rad(-12), math.rad(10), 0), 
+                0.4)
+                
+        elseif animpose == "Flying" then
+            change = 1
+            
+            Welds.RightArm.C0 = Lerp(Welds.RightArm.C0, 
+                CFrame.new(1.5, 0.6, 0) * 
+                CFrame.Angles(math.rad(-10), math.rad(-10), math.rad(20)), 
+                0.2)
+            
+            Welds.LeftArm.C0 = Lerp(Welds.LeftArm.C0, 
+                CFrame.new(-1.5, 0.6, 0) * 
+                CFrame.Angles(math.rad(-10), math.rad(10), math.rad(-20)), 
+                0.2)
+            
+            Welds.Head.C0 = Lerp(Welds.Head.C0, 
+                CFrame.new(0, 1.5, 0) * 
+                CFrame.Angles(math.rad(0), 0, 0), 
+                0.2)
+            
+            Welds.Torso.C0 = Lerp(Welds.Torso.C0, 
+                CFrame.new(0, 0, 0) * 
+                CFrame.Angles(math.rad(0), 0, 0), 
+                0.2)
+            
+            Welds.LeftLeg.C0 = Lerp(Welds.LeftLeg.C0, 
+                CFrame.new(-0.5, -0.5, -0.5) * 
+                CFrame.Angles(math.rad(-20), 0, math.rad(-5)), 
+                0.2)
+            
+            Welds.RightLeg.C0 = Lerp(Welds.RightLeg.C0, 
+                CFrame.new(0.5, -0.5, -0.5) * 
+                CFrame.Angles(math.rad(-20), 0, math.rad(5)), 
+                0.2)
+        end
+    end
+    
+    -- パーティクルエフェクト
+    if math.random(1, 50) == 1 then
+        Particle("Royal purple")
+    end
+end)
+
+-- 定期的な地面波エフェクト
+spawn(function()
+    while wait(2) do
+        if not flying then
+            GroundWave()
+        end
+    end
+end)
+
+print("Part 2/5 Complete - Flight & Animation System Loaded!")
+print("Loading Part 3...")
+
+-- Omni God of Destruction - Part 3/5
+-- 攻撃システム
+-- Part 1, 2の後に実行されます
+
+local RunService = game:GetService("RunService")
+local Debris = game:GetService("Debris")
+local Character = _G.OmniGod.Character
+local Humanoid = _G.OmniGod.Humanoid
+local RootPart = _G.OmniGod.RootPart
+local Torso = _G.OmniGod.Torso
+local Head = _G.OmniGod.Head
+local RightArm = _G.OmniGod.RightArm
+local LeftArm = _G.OmniGod.LeftArm
+local RightLeg = _G.OmniGod.RightLeg
+local LeftLeg = _G.OmniGod.LeftLeg
+local Mouse = _G.OmniGod.Mouse
+local Welds = _G.OmniGod.Welds
+local Lerp = _G.OmniGod.Lerp
+local Debounces = _G.OmniGod.Debounces
+
+-- ユーティリティ関数
+local function FindNearestTorso(Position, Distance)
+    local List = {}
+    for _, v in pairs(workspace:GetChildren()) do
+        if v:IsA("Model") and v:FindFirstChild("Torso") and v ~= Character then
+            if (v.Torso.Position - Position).Magnitude <= Distance then
+                table.insert(List, v)
+            end
+        end
+    end
+    return List
+end
+
+local function CreatePart(size, cframe, color, material, transparency, parent)
+    local part = Instance.new("Part", parent or workspace)
+    part.Size = size
+    part.CFrame = cframe
+    part.BrickColor = BrickColor.new(color)
+    part.Material = material or "SmoothPlastic"
+    part.Transparency = transparency or 0
+    part.Anchored = true
+    part.CanCollide = false
+    part.TopSurface = 10
+    part.BottomSurface = 10
+    return part
+end
+
+local function CameraShake(intensity, duration)
+    local cam = workspace.CurrentCamera
+    spawn(function()
+        for i = 1, duration * 30 do
+            cam.CFrame = cam.CFrame * CFrame.Angles(
+                math.rad(math.random(-intensity, intensity) / 10),
+                math.rad(math.random(-intensity, intensity) / 10),
+                math.rad(math.random(-intensity, intensity) / 10)
+            )
+            RunService.RenderStepped:Wait()
+        end
+    end)
+end
+
+-- Gキー: 連続プロジェクタイル攻撃
+Mouse.KeyDown:Connect(function(key)
+    key = key:lower()
+    
+    if key == "g" and Debounces.CanAttack then
+        Debounces.CanAttack = false
+        Debounces.NoIdl = true
+        Debounces.on = true
+        
+        local sound = Instance.new("Sound", Torso)
+        sound.SoundId = "rbxassetid://200633492"
+        sound.Pitch = 3
+        sound.Volume = 0.5
+        sound:Play()
+        Debris:AddItem(sound, 3)
+        
+        -- 連続攻撃ループ
+        for cycle = 1, 5 do
+            for side = 1, 2 do
+                wait(0.1)
+                
+                -- プロジェクタイル作成
+                local projectile = Instance.new("Part")
+                projectile.Parent = workspace
+                projectile.Material = "Neon"
+                projectile.BrickColor = BrickColor.new("Royal purple")
+                projectile.CanCollide = false
+                projectile.Shape = "Ball"
+                projectile.Size = Vector3.new(1, 1, 1)
+                projectile.CFrame = RootPart.CFrame * CFrame.new(0, 0.7, -2)
+                projectile.Anchored = false
+                
+                local mesh = Instance.new("SpecialMesh", projectile)
+                mesh.MeshType = "Sphere"
+                mesh.Scale = Vector3.new(1.5, 1.5, 1.5)
+                
+                -- トレイルエフェクト
+                local trail = Instance.new("ParticleEmitter", projectile)
+                trail.Texture = "rbxassetid:// "
+                trail.LightEmission = 0.95
+                trail.Color = ColorSequence.new(Color3.new(0.66, 0, 1))
+                trail.Rate = 10000
+                trail.Lifetime = NumberRange.new(1.5)
+                trail.Size = NumberSequence.new({
+                    NumberSequenceKeypoint.new(0, 1.5),
+                    NumberSequenceKeypoint.new(1, 0)
+                })
+                trail.Transparency = NumberSequence.new({
+                    NumberSequenceKeypoint.new(0, 0),
+                    NumberSequenceKeypoint.new(1, 1)
+                })
+                trail.Speed = NumberRange.new(0)
+                trail.RotSpeed = NumberRange.new(-500, 500)
+                
+                local bv = Instance.new("BodyVelocity", projectile)
+                bv.maxForce = Vector3.new(9e9, 9e9, 9e9)
+                bv.velocity = Mouse.Hit.lookVector * 100
+                
+                local hit = false
+                projectile.Touched:Connect(function(part)
+                    if not hit and part.Parent ~= Character and part.Parent:FindFirstChild("Humanoid") then
+                        hit = true
+                        trail.Rate = 0
+                        projectile.Anchored = true
+                        
+                        part.Parent.Humanoid:TakeDamage(20)
+                        
+                        local explosion = Instance.new("Explosion", projectile)
+                        explosion.BlastRadius = 10
+                        explosion.Position = projectile.Position
+                        
+                        wait(0.1)
+                        projectile:Destroy()
+                    end
+                end)
+                
+                Debris:AddItem(projectile, 5)
+                
+                -- アニメーション
+                if side == 1 then
+                    for i = 1, 2 do
+                        Welds.RightArm.C0 = Lerp(Welds.RightArm.C0, 
+                            CFrame.new(1.5, 0.55, 0) * 
+                            CFrame.Angles(math.rad(90), math.rad(0), math.rad(-50)), 0.4)
+                        Welds.LeftArm.C0 = Lerp(Welds.LeftArm.C0, 
+                            CFrame.new(-1.5, 0.55, 0) * 
+                            CFrame.Angles(math.rad(60), math.rad(20), math.rad(-20)), 0.4)
+                        wait()
+                    end
+                else
+                    for i = 1, 2 do
+                        Welds.LeftArm.C0 = Lerp(Welds.LeftArm.C0, 
+                            CFrame.new(-1.5, 0.55, 0) * 
+                            CFrame.Angles(math.rad(90), math.rad(0), math.rad(50)), 0.4)
+                        Welds.RightArm.C0 = Lerp(Welds.RightArm.C0, 
+                            CFrame.new(1.5, 0.55, 0) * 
+                            CFrame.Angles(math.rad(60), math.rad(-20), math.rad(20)), 0.4)
+                        wait()
+                    end
+                end
+            end
+        end
+        
+        Debounces.CanAttack = true
+        Debounces.NoIdl = false
+        Debounces.on = false
+    end
+    
+    -- Bキー: 咆哮攻撃
+    if key == "b" and Debounces.CanAttack then
+        Debounces.CanAttack = false
+        Debounces.NoIdl = true
+        Debounces.on = true
+        
+        local originalWalkSpeed = Humanoid.WalkSpeed
+        Humanoid.WalkSpeed = 0
+        
+        local sound = Instance.new("Sound", Torso)
+        sound.SoundId = "rbxassetid://753551986"
+        sound.Pitch = 1
+        sound.Volume = 1
+        sound:Play()
+        Debris:AddItem(sound, 5)
+        
+        -- チャージアニメーション
+        for i = 1, 20 do
+            Welds.LeftArm.C0 = Lerp(Welds.LeftArm.C0, 
+                CFrame.new(-1.5, 0.5, 0) * CFrame.Angles(math.rad(75), 0, math.rad(30)), 0.1)
+            Welds.RightArm.C0 = Lerp(Welds.RightArm.C0, 
+                CFrame.new(1.5, 0.5, 0) * CFrame.Angles(math.rad(75), 0, math.rad(-30)), 0.1)
+            Welds.Head.C0 = Lerp(Welds.Head.C0, 
+                CFrame.new(0, 1.5, -0.2) * CFrame.Angles(math.rad(-20), 0, 0), 0.1)
+            Welds.Torso.C0 = Lerp(Welds.Torso.C0, 
+                CFrame.new(0, -1, 0) * CFrame.Angles(math.rad(-30), 0, 0), 0.1)
+            wait()
+        end
+        
+        -- 衝撃波エフェクト
+        local shockwave = Instance.new("Part", workspace)
+        shockwave.BrickColor = BrickColor.new("Royal purple")
+        shockwave.Material = "Neon"
+        shockwave.Anchored = true
+        shockwave.CanCollide = false
+        shockwave.Size = Vector3.new(1, 1, 1)
+        shockwave.CFrame = Torso.CFrame
+        shockwave.Transparency = 0.5
+        
+        local mesh = Instance.new("SpecialMesh", shockwave)
+        mesh.MeshType = "Sphere"
+        mesh.Scale = Vector3.new(2, 2, 2)
+        
+        CameraShake(5, 2)
+        
+        for i = 1, 30 do
+            mesh.Scale = mesh.Scale + Vector3.new(3, 3, 3)
+            shockwave.Transparency = 0.5 + (i / 60)
+            
+            -- 範囲ダメージ
+            for _, v in pairs(FindNearestTorso(Torso.Position, mesh.Scale.X / 2)) do
+                if v:FindFirstChild("Humanoid") then
+                    v.Humanoid:TakeDamage(5)
+                    if v:FindFirstChild("Torso") then
+                        v.Torso.Velocity = (v.Torso.Position - Torso.Position).unit * 50
+                    end
+                end
+            end
+            
+            wait()
+        end
+        
+        shockwave:Destroy()
+        Humanoid.WalkSpeed = originalWalkSpeed
+        Debounces.CanAttack = true
+        Debounces.NoIdl = false
+        Debounces.on = false
+    end
+    
+    -- Eキー: シャドウブラスト
+    if key == "e" and Debounces.CanAttack then
+        Debounces.CanAttack = false
+        Debounces.NoIdl = true
+        
+        local sound = Instance.new("Sound", Torso)
+        sound.SoundId = "rbxassetid://138210320"
+        sound.Volume = 1
+        sound:Play()
+        Debris:AddItem(sound, 3)
+        
+        -- チャージモーション
+        for i = 1, 10 do
+            Welds.RightArm.C0 = Lerp(Welds.RightArm.C0, 
+                CFrame.new(1.2, 0.5, -0.5) * 
+                CFrame.Angles(math.rad(90), math.rad(0), math.rad(-50)), 0.2)
+            Welds.LeftArm.C0 = Lerp(Welds.LeftArm.C0, 
+                CFrame.new(-1.2, 0.5, -0.5) * 
+                CFrame.Angles(math.rad(90), math.rad(0), math.rad(50)), 0.2)
+            wait()
+        end
+        
+        -- シンボル作成
+        local symbol = CreatePart(Vector3.new(1, 0.2, 1), 
+            Torso.CFrame * CFrame.new(0, 0, -5), 
+            "Royal purple", "Neon", 0.3)
+        
+        local decal = Instance.new("Decal", symbol)
+        decal.Texture = "rbxassetid:// "
+        decal.Face = "Top"
+        
+        local mesh = Instance.new("CylinderMesh", symbol)
+        mesh.Scale = Vector3.new(1, 1, 1)
+        
+        for i = 1, 20 do
+            mesh.Scale = mesh.Scale + Vector3.new(2, 0, 2)
+            symbol.CFrame = symbol.CFrame * CFrame.Angles(0, math.rad(10), 0)
+            wait()
+        end
+        
+        -- ブラスト発射
+        local blast = Instance.new("Part", workspace)
+        blast.Size = Vector3.new(5, 5, 5)
+        blast.BrickColor = BrickColor.new("Royal purple")
+        blast.Material = "Neon"
+        blast.Shape = "Ball"
+        blast.CanCollide = false
+        blast.CFrame = symbol.CFrame
+        
+        local bv = Instance.new("BodyVelocity", blast)
+        bv.maxForce = Vector3.new(9e9, 9e9, 9e9)
+        bv.velocity = (Mouse.Hit.p - blast.Position).unit * 80
+        
+        local trail = Instance.new("ParticleEmitter", blast)
+        trail.Texture = "rbxassetid:// "
+        trail.LightEmission = 1
+        trail.Color = ColorSequence.new(Color3.new(0.66, 0, 1))
+        trail.Rate = 1000
+        trail.Lifetime = NumberRange.new(1)
+        trail.Size = NumberSequence.new(3)
+        trail.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0),
+            NumberSequenceKeypoint.new(1, 1)
+        })
+        
+        local hit = false
+        blast.Touched:Connect(function(part)
+            if not hit and part.Parent ~= Character then
+                hit = true
+                trail.Rate = 0
+                bv:Destroy()
+                blast.Anchored = true
+                
+                -- 爆発
+                local explosion = Instance.new("Explosion", blast)
+                explosion.BlastRadius = 30
+                explosion.Position = blast.Position
+                explosion.BlastPressure = 1000000
+                
+                -- ダメージ
+                for _, v in pairs(FindNearestTorso(blast.Position, 30)) do
+                    if v:FindFirstChild("Humanoid") then
+                        v.Humanoid:TakeDamage(50)
+                    end
+                end
+                
+                -- エフェクト
+                for i = 1, 20 do
+                    blast.Size = blast.Size + Vector3.new(1, 1, 1)
+                    blast.Transparency = i / 20
+                    wait()
+                end
+                
+                blast:Destroy()
+            end
+        end)
+        
+        symbol:Destroy()
+        Debris:AddItem(blast, 10)
+        
+        wait(1)
+        Debounces.CanAttack = true
+        Debounces.NoIdl = false
+    end
+    
+    -- Qキー: アルティメット攻撃
+    if key == "q" and Debounces.CanAttack and _G.OmniGod.Flying then
+        Debounces.CanAttack = false
+        Debounces.NoIdl = true
+        
+        local sound = Instance.new("Sound", Torso)
+        sound.SoundId = "rbxassetid://752647397"
+        sound.Volume = 2
+        sound:Play()
+        Debris:AddItem(sound, 5)
+        
+        -- チャージエフェクト
+        local orb = Instance.new("Part", Character)
+        orb.Shape = "Ball"
+        orb.Size = Vector3.new(1, 1, 1)
+        orb.BrickColor = BrickColor.new("Royal purple")
+        orb.Material = "Neon"
+        orb.CanCollide = false
+        
+        local orbWeld = Instance.new("Weld", orb)
+        orbWeld.Part0 = Torso
+        orbWeld.Part1 = orb
+        orbWeld.C0 = CFrame.new(0, 3, 0)
+        
+        local orbParticle = Instance.new("ParticleEmitter", orb)
+        orbParticle.Texture = "rbxassetid://296874871"
+        orbParticle.LightEmission = 1
+        orbParticle.Rate = 1000
+        orbParticle.Lifetime = NumberRange.new(1)
+        orbParticle.Size = NumberSequence.new(2)
+        orbParticle.Speed = NumberRange.new(10)
+        orbParticle.VelocitySpread = 180
+        
+        -- チャージアニメーション
+        for i = 1, 30 do
+            orb.Size = orb.Size + Vector3.new(0.3, 0.3, 0.3)
+            orbWeld.C0 = CFrame.new(0, 3 + i * 0.1, 0)
+            
+            Welds.RightArm.C0 = Lerp(Welds.RightArm.C0, 
+                CFrame.new(1.5, 0.6 + 0.3 * math.sin(i/5), 0) * 
+                CFrame.Angles(math.rad(180), 0, math.rad(20)), 0.2)
+            Welds.LeftArm.C0 = Lerp(Welds.LeftArm.C0, 
+                CFrame.new(-1.5, 0.6 + 0.3 * math.sin(i/5), 0) * 
+                CFrame.Angles(math.rad(180), 0, math.rad(-20)), 0.2)
+            
+            wait()
+        end
+        
+        orbParticle.Rate = 0
+        orbWeld:Destroy()
+        orb.Anchored = true
+        
+        -- 発射
+        local bv = Instance.new("BodyVelocity", orb)
+        bv.maxForce = Vector3.new(9e9, 9e9, 9e9)
+        bv.velocity = (Mouse.Hit.p - orb.Position).unit * 100
+        orb.Anchored = false
+        
+        local hit = false
+        orb.Touched:Connect(function(part)
+            if not hit and part.Parent ~= Character then
+                hit = true
+                bv:Destroy()
+                orb.Anchored = true
+                
+                CameraShake(10, 3)
+                
+                -- 巨大爆発
+                for i = 1, 50 do
+                    orb.Size = orb.Size + Vector3.new(2, 2, 2)
+                    orb.Transparency = i / 50
+                    
+                    for _, v in pairs(FindNearestTorso(orb.Position, orb.Size.X / 2)) do
+                        if v:FindFirstChild("Humanoid") then
+                            v.Humanoid:TakeDamage(10)
+                        end
+                    end
+                    
+                    wait()
+                end
+                
+                orb:Destroy()
+            end
+        end)
+        
+        Debris:AddItem(orb, 15)
+        
+        wait(2)
+        Debounces.CanAttack = true
+        Debounces.NoIdl = false
+    end
+end)
+
+print("Part 3/5 Complete - Attack Systems Loaded!")
+print("G - Rapid Fire, B - Roar, E - Shadow Blast, Q - Ultimate (while flying)")
+print("Loading Part 4...")
+
+-- Omni God of Destruction - Part 4/5
+-- 特殊エフェクトとUI
+-- Part 1, 2, 3の後に実行されます
+
+local RunService = game:GetService("RunService")
+local Debris = game:GetService("Debris")
+local TweenService = game:GetService("TweenService")
+local Player = game:GetService("Players").LocalPlayer
+local Character = _G.OmniGod.Character
+local Humanoid = _G.OmniGod.Humanoid
+local RootPart = _G.OmniGod.RootPart
+local Torso = _G.OmniGod.Torso
+local Head = _G.OmniGod.Head
+local Mouse = _G.OmniGod.Mouse
+local Welds = _G.OmniGod.Welds
+local Lerp = _G.OmniGod.Lerp
+local Debounces = _G.OmniGod.Debounces
+
+-- BGM設定
+local Muss = Instance.new("Sound", Character)
+Muss.SoundId = "rbxassetid://186942568"
+Muss.Pitch = 1
+Muss.Volume = 0.4
+Muss.Looped = true
+Muss:Play()
+
+-- グラウンドエフェクト関数
+local function GroundWave3()
+    local HandCF = CFrame.new(RootPart.Position - Vector3.new(0, 3, 0)) * 
+                   CFrame.Angles(math.rad(90), 0, 0)
+    
+    local wave = Instance.new("Part", Torso)
+    wave.BrickColor = BrickColor.new("Royal purple")
+    wave.Anchored = true
+    wave.CanCollide = false
+    wave.Locked = true
+    wave.Size = Vector3.new(1, 1, 1)
+    wave.TopSurface = "Smooth"
+    wave.BottomSurface = "Smooth"
+    wave.Transparency = 0.35
+    wave.CFrame = HandCF
+    
+    local wm = Instance.new("SpecialMesh", wave)
+    wm.MeshId = "rbxassetid://3270017"
+    wm.Scale = Vector3.new(1, 1, 1)
+    
+    coroutine.wrap(function()
+        for i = 1, 14 do
+            wm.Scale = Vector3.new(1 + i * 1.1, 1 + i * 1.1, 1)
+            wave.Size = wm.Scale
+            wave.CFrame = HandCF
+            wave.Transparency = i / 14
+            wait()
+        end
+        wave:Destroy()
+    end)()
+end
+
+-- クレーター作成関数
+local function Crater(position, radius)
+    spawn(function()
+        local ray = Ray.new(position, Vector3.new(0, -1, 0) * 10)
+        local hit, pos, normal = workspace:FindPartOnRay(ray, Character)
+        
+        if not hit then return end
+        
+        local parts = {}
+        for i = 1, 360, 10 do
+            local p = Instance.new("Part", workspace)
+            p.Anchored = true
+            p.FormFactor = "Custom"
+            p.BrickColor = hit.BrickColor
+            p.Material = hit.Material
+            p.TopSurface = "Smooth"
+            p.BottomSurface = "Smooth"
+            p.Size = Vector3.new(5, 10, 10) * (math.random(80, 100) / 100)
+            p.CFrame = CFrame.new(pos, pos + normal) * 
+                       CFrame.Angles(math.rad(90), 0, 0) - 
+                       Vector3.new(0, 7, 0) * 
+                       CFrame.Angles(math.rad(math.random(-50, 50)), 
+                                    math.rad(math.random(-50, 50)), 
+                                    math.rad(math.random(-50, 50)))
+            
+            table.insert(parts, p)
+            Debris:AddItem(p, 10)
+        end
+        
+        for i = 0, 1, 0.05 do
+            for _, p in pairs(parts) do
+                p.CFrame = p.CFrame * CFrame.new(0, 0.1, 0)
+                p.Transparency = i
+            end
+            wait(0.02)
+        end
+    end)
+end
+
+-- チャージングエフェクト
+_G.OmniGod.Charging = false
+
+local function StartCharging()
+    _G.OmniGod.Charging = true
+    
+    -- チャージパーティクル
+    local part = Instance.new("Part", Torso)
+    part.Anchored = true
+    part.CanCollide = false
+    part.Transparency = 1
+    part.CFrame = Torso.CFrame
+    
+    local emitter = Instance.new("ParticleEmitter", part)
+    emitter.Texture = "rbxassetid://300899196"
+    emitter.Size = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 18),
+        NumberSequenceKeypoint.new(1, 1)
+    })
+    emitter.Transparency = NumberSequence.new(0.7)
+    emitter.Lifetime = NumberRange.new(2)
+    emitter.Rate = 30
+    emitter.Color = ColorSequence.new(Color3.new(0.66, 0, 1))
+    emitter.LockedToPart = true
+    
+    local emitter2 = Instance.new("ParticleEmitter", part)
+    emitter2.Lifetime = NumberRange.new(5)
+    emitter2.Speed = NumberRange.new(0)
+    emitter2.Size = NumberSequence.new(18)
+    emitter2.LockedToPart = true
+    emitter2.Transparency = NumberSequence.new(0.5)
+    emitter2.Rate = 3
+    emitter2.Color = ColorSequence.new(Color3.new(0.66, 0, 1))
+    emitter2.Texture = "rbxassetid:// "
+    
+    return part, emitter, emitter2
+end
+
+local function StopCharging(part, emitter1, emitter2)
+    _G.OmniGod.Charging = false
+    if emitter1 then emitter1.Rate = 0 end
+    if emitter2 then emitter2.Rate = 0 end
+    if part then Debris:AddItem(part, 2) end
+end
+
+-- UI作成
+local ScreenGui = Instance.new("ScreenGui", Player.PlayerGui)
+ScreenGui.Name = "OmniGodUI"
+ScreenGui.ResetOnSpawn = false
+
+-- ムーブリスト
+local MovesFrame = Instance.new("ScrollingFrame", ScreenGui)
+MovesFrame.BackgroundColor3 = Color3.fromRGB(72, 72, 72)
+MovesFrame.BackgroundTransparency = 0.8
+MovesFrame.BorderSizePixel = 0
+MovesFrame.Position = UDim2.new(-0.2, 0, 0.4, 0)
+MovesFrame.Size = UDim2.new(0.2, 0, 0.5, 0)
+MovesFrame.ScrollBarThickness = 8
+MovesFrame.Visible = false
+
+local Title = Instance.new("TextLabel", MovesFrame)
+Title.BackgroundTransparency = 1
+Title.Size = UDim2.new(1, 0, 0.05, 0)
+Title.Font = Enum.Font.SourceSansLight
+Title.Text = "Move List"
+Title.TextColor3 = Color3.new(1, 1, 1)
+Title.TextScaled = true
+Title.TextStrokeTransparency = 0
+
+-- ムーブリストの内容
+local moves = {
+    "F - Toggle Flight Mode",
+    "WASD - Movement (when flying)",
+    "G - Rapid Fire Projectiles",
+    "B - Roar Attack (AoE)",
+    "E - Shadow Blast",
+    "Q - Ultimate Attack (flying only)",
+    "R - Purple Nova (NOT RECOMMENDED)",
+    "",
+    "WARNING: Do not use multiple",
+    "attacks at the same time!"
+}
+
+local yPos = 0.05
+for _, moveText in ipairs(moves) do
+    local moveLabel = Instance.new("TextLabel", MovesFrame)
+    moveLabel.BackgroundTransparency = 1
+    moveLabel.Position = UDim2.new(0, 0, yPos, 0)
+    moveLabel.Size = UDim2.new(1, 0, 0.04, 0)
+    moveLabel.Font = Enum.Font.SourceSansLight
+    moveLabel.Text = moveText
+    moveLabel.TextColor3 = Color3.new(1, 1, 1)
+    moveLabel.TextScaled = true
+    moveLabel.TextXAlignment = Enum.TextXAlignment.Left
+    moveLabel.TextStrokeTransparency = 0.5
+    yPos = yPos + 0.04
+end
+
+-- トグルボタン
+local ToggleButton = Instance.new("TextButton", ScreenGui)
+ToggleButton.Position = UDim2.new(0.002, 0, 0.83, 0)
+ToggleButton.Size = UDim2.new(0.05, 0, 0.08, 0)
+ToggleButton.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+ToggleButton.BackgroundTransparency = 0.5
+ToggleButton.BorderSizePixel = 2
+ToggleButton.BorderColor3 = Color3.fromRGB(100, 100, 100)
+ToggleButton.Font = Enum.Font.SourceSansLight
+ToggleButton.Text = "Show Moves"
+ToggleButton.TextColor3 = Color3.new(1, 1, 1)
+ToggleButton.TextScaled = true
+
+local menuOpen = false
+ToggleButton.MouseButton1Click:Connect(function()
+    menuOpen = not menuOpen
+    
+    if menuOpen then
+        ToggleButton.Text = "Hide Moves"
+        MovesFrame:TweenPosition(UDim2.new(0.002, 0, 0.4, 0), "Out", "Bounce", 0.6, true)
+        ToggleButton:TweenPosition(UDim2.new(0.202, 0, 0.83, 0), "Out", "Bounce", 0.6, true)
+    else
+        ToggleButton.Text = "Show Moves"
+        MovesFrame:TweenPosition(UDim2.new(-0.2, 0, 0.4, 0), "Out", "Bounce", 0.6, true)
+        ToggleButton:TweenPosition(UDim2.new(0.002, 0, 0.83, 0), "Out", "Bounce", 0.6, true)
+    end
+    
+    MovesFrame.Visible = menuOpen
+end)
+
+-- Rキー: Purple Nova (危険な攻撃)
+Mouse.KeyDown:Connect(function(key)
+    if key:lower() == "r" and Debounces.CanAttack then
+        Debounces.CanAttack = false
+        Debounces.NoIdl = true
+        
+        local warning = Instance.new("Hint", workspace)
+        warning.Text = "WARNING: PURPLE NOVA INCOMING!"
+        Debris:AddItem(warning, 3)
+        
+        -- チャージ開始
+        local chargePart, emitter1, emitter2 = StartCharging()
+        
+        local sound = Instance.new("Sound", Torso)
+        sound.SoundId = "rbxassetid://752783199"
+        sound.Volume = 1
+        sound.Pitch = 0.8
+        sound:Play()
+        Debris:AddItem(sound, 5)
+        
+        -- チャージモーション
+        for i = 1, 40 do
+            Welds.RightArm.C0 = Lerp(Welds.RightArm.C0, 
+                CFrame.new(1.5, 0.6, 0) * 
+                CFrame.Angles(math.rad(90 + 10 * math.sin(i/5)), 0, math.rad(30)), 0.1)
+            Welds.LeftArm.C0 = Lerp(Welds.LeftArm.C0, 
+                CFrame.new(-1.5, 0.6, 0) * 
+                CFrame.Angles(math.rad(90 + 10 * math.sin(i/5)), 0, math.rad(-30)), 0.1)
+            Welds.Head.C0 = Lerp(Welds.Head.C0, 
+                CFrame.new(0, 1.5, 0) * 
+                CFrame.Angles(math.rad(-30), 0, 0), 0.1)
+            wait()
+        end
+        
+        StopCharging(chargePart, emitter1, emitter2)
+        
+        -- 爆発
+        local nova = Instance.new("Part", workspace)
+        nova.Shape = "Ball"
+        nova.Size = Vector3.new(5, 5, 5)
+        nova.BrickColor = BrickColor.new("Royal purple")
+        nova.Material = "Neon"
+        nova.Anchored = true
+        nova.CanCollide = false
+        nova.CFrame = RootPart.CFrame
+        nova.Transparency = 0
+        
+        local novaLight = Instance.new("PointLight", nova)
+        novaLight.Brightness = 0
+        novaLight.Range = 60
+        novaLight.Color = Color3.new(0.66, 0, 1)
+        
+        local explosionSound = Instance.new("Sound", nova)
+        explosionSound.SoundId = "rbxassetid://138210320"
+        explosionSound.Volume = 3
+        explosionSound.Pitch = 0.5
+        explosionSound:Play()
+        
+        -- 画面を暗くする
+        local colorCorrection = Instance.new("ColorCorrectionEffect", game.Lighting)
+        colorCorrection.Brightness = 0
+        colorCorrection.Saturation = -1
+        
+        TweenService:Create(colorCorrection, TweenInfo.new(1), {
+            Brightness = 0,
+            Saturation = 0
+        }):Play()
+        
+        Debris:AddItem(colorCorrection, 5)
+        
+        -- 拡大とダメージ
+        for i = 1, 60 do
+            nova.Size = nova.Size + Vector3.new(5, 5, 5)
+            nova.Transparency = i / 60
+            novaLight.Range = 60 + i * 5
+            
+            -- 範囲ダメージ
+            for _, v in pairs(workspace:GetChildren()) do
+                if v:IsA("Model") and v:FindFirstChild("Humanoid") and v ~= Character then
+                    if v:FindFirstChild("Torso") then
+                        local distance = (v.Torso.Position - nova.Position).Magnitude
+                        if distance < nova.Size.X / 2 then
+                            v.Humanoid:TakeDamage(5)
+                            v.Torso.Velocity = (v.Torso.Position - nova.Position).unit * 100
+                        end
+                    end
+                end
+            end
+            
+            wait()
+        end
+        
+        nova:Destroy()
+        Crater(RootPart.Position, 50)
+        
+        wait(2)
+        Debounces.CanAttack = true
+        Debounces.NoIdl = false
+    end
+end)
+
+-- 定期的なエフェクト
+spawn(function()
+    while wait(3) do
+        if not _G.OmniGod.Flying then
+            GroundWave3()
+        end
+    end
+end)
+
+-- オーラエフェクト
+local auraEnabled = true
+spawn(function()
+    while wait(0.1) do
+        if auraEnabled and not Debounces.on then
+            local aura = Instance.new("Part", Character)
+            aura.Size = Vector3.new(0.5, 0.5, 0.5)
+            aura.CFrame = Torso.CFrame * CFrame.new(
+                math.random(-20, 20) / 10,
+                math.random(-20, 20) / 10,
+                math.random(-20, 20) / 10
+            )
+            aura.BrickColor = BrickColor.new("Royal purple")
+            aura.Material = "Neon"
+            aura.Anchored = true
+            aura.CanCollide = false
+            aura.Transparency = 0.5
+            
+            spawn(function()
+                for i = 1, 20 do
+                    aura.Size = aura.Size + Vector3.new(0.1, 0.1, 0.1)
+                    aura.Transparency = 0.5 + (i / 40)
+                    aura.CFrame = aura.CFrame * CFrame.new(0, 0.1, 0)
+                    RunService.RenderStepped:Wait()
+                end
+                aura:Destroy()
+            end)
+        end
+    end
+end)
+
+-- ステータス表示
+local StatusLabel = Instance.new("TextLabel", ScreenGui)
+StatusLabel.Position = UDim2.new(0.01, 0, 0.01, 0)
+StatusLabel.Size = UDim2.new(0.15, 0, 0.05, 0)
+StatusLabel.BackgroundTransparency = 0.7
+StatusLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+StatusLabel.BorderSizePixel = 2
+StatusLabel.BorderColor3 = Color3.fromRGB(100, 0, 150)
+StatusLabel.Font = Enum.Font.SourceSansBold
+StatusLabel.Text = "Status: Ready"
+StatusLabel.TextColor3 = Color3.new(1, 1, 1)
+StatusLabel.TextScaled = true
+
+-- ステータス更新
+spawn(function()
+    while wait(0.1) do
+        if _G.OmniGod.Flying then
+            StatusLabel.Text = "Status: Flying"
+            StatusLabel.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
+        elseif Debounces.on then
+            StatusLabel.Text = "Status: Attacking"
+            StatusLabel.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+        elseif _G.OmniGod.Charging then
+            StatusLabel.Text = "Status: Charging"
+            StatusLabel.BackgroundColor3 = Color3.fromRGB(150, 0, 255)
+        else
+            StatusLabel.Text = "Status: Ready"
+            StatusLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        end
+    end
+end)
+
+print("Part 4/5 Complete - Effects & UI Loaded!")
+print("Loading Part 5 (Final)...")
+
+-- Omni God of Destruction - Part 5/5 (Final)
+-- ユーティリティと統合
+-- Part 1, 2, 3, 4の後に実行されます
+
+local RunService = game:GetService("RunService")
+local Debris = game:GetService("Debris")
+local Character = _G.OmniGod.Character
+local Humanoid = _G.OmniGod.Humanoid
+local RootPart = _G.OmniGod.RootPart
+local Torso = _G.OmniGod.Torso
+local Mouse = _G.OmniGod.Mouse
+local Welds = _G.OmniGod.Welds
+local Lerp = _G.OmniGod.Lerp
+local Debounces = _G.OmniGod.Debounces
+
+-- ユーティリティ関数
+local function FindNearestTorso(Position, Distance)
+    local List = {}
+    for _, v in pairs(workspace:GetChildren()) do
+        if v:IsA("Model") and v:FindFirstChild("Torso") and v ~= Character then
+            if (v.Torso.Position - Position).Magnitude <= Distance then
+                table.insert(List, v)
+            end
+        end
+    end
+    return List
+end
+
+-- Tキー: 未完成の攻撃（簡易実装）
+Mouse.KeyDown:Connect(function(key)
+    if key:lower() == "t" and Debounces.CanAttack then
+        Debounces.CanAttack = false
+        Debounces.NoIdl = true
+        
+        local sound = Instance.new("Sound", Torso)
+        sound.SoundId = "rbxassetid://414516914"
+        sound.Volume = 2
+        sound.Pitch = 0.8
+        sound:Play()
+        Debris:AddItem(sound, 3)
+        
+        -- シンボル作成
+        local symbol = Instance.new("Part", workspace)
+        symbol.Size = Vector3.new(1, 0.2, 1)
+        symbol.BrickColor = BrickColor.new("Royal purple")
+        symbol.Material = "Neon"
+        symbol.Anchored = true
+        symbol.CanCollide = false
+        symbol.CFrame = CFrame.new(Mouse.Hit.p) * CFrame.Angles(0, 0, 0)
+        symbol.Transparency = 0.5
+        
+        local decal = Instance.new("Decal", symbol)
+        decal.Texture = "rbxassetid://349165228"
+        decal.Face = "Top"
+        
+        local decal2 = Instance.new("Decal", symbol)
+        decal2.Texture = "rbxassetid://349165228"
+        decal2.Face = "Bottom"
+        
+        local mesh = Instance.new("CylinderMesh", symbol)
+        mesh.Scale = Vector3.new(0, 1, 0)
+        
+        -- 拡大アニメーション
+        for i = 1, 50 do
+            mesh.Scale = mesh.Scale + Vector3.new(0.5, 0, 0.5)
+            wait()
+        end
+        
+        -- エネルギー柱
+        local pillar = Instance.new("Part", workspace)
+        pillar.Size = Vector3.new(10, 1, 10)
+        pillar.BrickColor = BrickColor.new("Royal purple")
+        pillar.Material = "Neon"
+        pillar.Anchored = true
+        pillar.CanCollide = false
+        pillar.CFrame = symbol.CFrame
+        pillar.Transparency = 0.3
+        
+        local mesh2 = Instance.new("CylinderMesh", pillar)
+        mesh2.Scale = Vector3.new(1, 0, 1)
+        
+        local explosionSound = Instance.new("Sound", pillar)
+        explosionSound.SoundId = "rbxassetid://130972023"
+        explosionSound.Volume = 2
+        explosionSound:Play()
+        
+        -- 上昇
+        for i = 1, 100 do
+            mesh2.Scale = mesh2.Scale + Vector3.new(0, 5, 0)
+            pillar.Size = Vector3.new(10, mesh2.Scale.Y, 10)
+            pillar.CFrame = symbol.CFrame * CFrame.new(0, mesh2.Scale.Y / 2, 0)
+            
+            -- ダメージ
+            for _, v in pairs(FindNearestTorso(pillar.Position, 15)) do
+                if v:FindFirstChild("Humanoid") then
+                    v.Humanoid:TakeDamage(2)
+                    if v:FindFirstChild("Torso") then
+                        v.Torso.Velocity = Vector3.new(0, 50, 0)
+                    end
+                end
+            end
+            
+            wait()
+        end
+        
+        -- 消滅
+        for i = 1, 30 do
+            pillar.Transparency = 0.3 + (i / 45)
+            symbol.Transparency = 0.5 + (i / 60)
+            mesh.Scale = mesh.Scale - Vector3.new(0.5, 0, 0.5)
+            wait()
+        end
+        
+        symbol:Destroy()
+        pillar:Destroy()
+        
+        wait(1)
+        Debounces.CanAttack = true
+        Debounces.NoIdl = false
+    end
+end)
+
+-- キャラクター死亡時の処理
+Humanoid.Died:Connect(function()
+    -- エフェクトをすべてクリーンアップ
+    for _, v in pairs(Character:GetChildren()) do
+        if v:IsA("ParticleEmitter") or v:IsA("Fire") or v:IsA("Smoke") then
+            v:Destroy()
+        end
+    end
+    
+    -- 爆発エフェクト
+    local explosion = Instance.new("Explosion", workspace)
+    explosion.Position = RootPart.Position
+    explosion.BlastRadius = 50
+    explosion.BlastPressure = 1000000
+    
+    -- サウンド
+    local sound = Instance.new("Sound", RootPart)
+    sound.SoundId = "rbxassetid://130972023"
+    sound.Volume = 3
+    sound:Play()
+end)
+
+-- キャラクター再スポーン時
+game:GetService("Players").LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+    wait(1)
+    -- グローバル変数をクリア
+    _G.OmniGod = nil
+    
+    -- UIをクリア
+    if game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("OmniGodUI") then
+        game:GetService("Players").LocalPlayer.PlayerGui.OmniGodUI:Destroy()
+    end
+end)
+
+-- デバッグコマンド（チャットで使用）
+game:GetService("Players").LocalPlayer.Chatted:Connect(function(msg)
+    msg = msg:lower()
+    
+    if msg == "/omni reset" then
+        Humanoid.Health = 0
+    elseif msg == "/omni heal" then
+        Humanoid.Health = Humanoid.MaxHealth
+    elseif msg == "/omni speed" then
+        Humanoid.WalkSpeed = Humanoid.WalkSpeed == 16 and 50 or 16
+    elseif msg == "/omni jump" then
+        Humanoid.JumpPower = Humanoid.JumpPower == 50 and 150 or 50
+    elseif msg == "/omni help" then
+        local hint = Instance.new("Hint", workspace)
+        hint.Text = "Commands: /omni reset, /omni heal, /omni speed, /omni jump"
+        Debris:AddItem(hint, 5)
+    end
+end)
+
+-- 追加のビジュアルエフェクト
+local torsoBlock = Instance.new("Part", Torso)
+torsoBlock.Size = Vector3.new(0.1, 0.1, 0.1)
+torsoBlock.Transparency = 1
+torsoBlock.CanCollide = false
+
+local weld = Instance.new("Weld", Torso)
+weld.Part0 = Torso
+weld.Part1 = torsoBlock
+weld.C0 = CFrame.new(0, 5, 0)
+
+local particleEmitter = Instance.new("ParticleEmitter", Torso)
+particleEmitter.Texture = "rbxassetid://0"
+particleEmitter.Size = NumberSequence.new({
+    NumberSequenceKeypoint.new(0, 18),
+    NumberSequenceKeypoint.new(1, 1)
+})
+particleEmitter.Transparency = NumberSequence.new(0.7)
+particleEmitter.Lifetime = NumberRange.new(2)
+particleEmitter.Rate = 10
+particleEmitter.LockedToPart = true
+particleEmitter.Color = ColorSequence.new(Color3.new(0.66, 0, 1))
+
+local particleEmitter2 = Instance.new("ParticleEmitter", torsoBlock)
+particleEmitter2.Lifetime = NumberRange.new(5)
+particleEmitter2.Speed = NumberRange.new(0)
+particleEmitter2.Size = NumberSequence.new(18)
+particleEmitter2.LockedToPart = true
+particleEmitter2.Transparency = NumberSequence.new(0.5)
+particleEmitter2.Rate = 3
+particleEmitter2.Color = ColorSequence.new(Color3.new(0.66, 0, 1))
+particleEmitter2.Texture = "rbxassetid:// "
+
+-- 球体エフェクト
+spawn(function()
+    while wait(0.5) do
+        if not Debounces.on then
+            local ball = Instance.new("Part", Character)
+            ball.Shape = "Ball"
+            ball.Size = Vector3.new(1, 1, 1)
+            ball.BrickColor = BrickColor.new("Royal purple")
+            ball.Material = "Neon"
+            ball.Transparency = 0.5
+            ball.Anchored = true
+            ball.CanCollide = false
+            ball.CFrame = Torso.CFrame
+            
+            local mesh = Instance.new("SpecialMesh", ball)
+            mesh.MeshType = "Sphere"
+            mesh.Scale = Vector3.new(1, 1, 1)
+            
+            spawn(function()
+                for i = 1, 15 do
+                    mesh.Scale = mesh.Scale + Vector3.new(1, 1, 1)
+                    ball.Transparency = 0.5 + (i / 30)
+                    RunService.RenderStepped:Wait()
+                end
+                ball:Destroy()
+            end)
+        end
+    end
+end)
+
+-- パフォーマンス監視
+local lastWarning = 0
+spawn(function()
+    while wait(5) do
+        local fps = workspace:GetRealPhysicsFPS()
+        if fps < 30 and tick() - lastWarning > 30 then
+            lastWarning = tick()
+            warn("Omni God Script: Low FPS detected (" .. math.floor(fps) .. "). Consider reducing effect intensity.")
+        end
+    end
+end)
+
+-- 統合確認
+print("="..string.rep("=", 50))
+print("OMNI GOD OF DESTRUCTION - FULLY LOADED")
+print("="..string.rep("=", 50))
+print("")
+print("All 5 parts loaded successfully!")
+print("")
+print("CONTROLS:")
+print("  F - Toggle Flight")
+print("  WASD - Movement (when flying)")
+print("  G - Rapid Fire Attack")
+print("  B - Roar Attack")
+print("  E - Shadow Blast")
+print("  Q - Ultimate Attack (flying only)")
+print("  R - Purple Nova (DANGEROUS)")
+print("  T - Energy Pillar")
+print("")
+print("COMMANDS:")
+print("  /omni help - Show commands")
+print("  /omni heal - Restore health")
+print("  /omni speed - Toggle speed")
+print("  /omni jump - Toggle jump power")
+print("")
+print("WARNING: Do not spam attacks!")
+print("="..string.rep("=", 50))
+
+-- 最終初期化
+_G.OmniGod.Initialized = true
+_G.OmniGod.Version = "1.0"
+
+-- 完了サウンド
+local completeSound = Instance.new("Sound", Torso)
+completeSound.SoundId = "rbxassetid://241816029"
+completeSound.Volume = 1
+completeSound:Play()
+Debris:AddItem(completeSound, 3)
+
+-- グローバルアクセス用の便利関数
+_G.OmniGod.GetStatus = function()
+    return {
+        Flying = _G.OmniGod.Flying,
+        Charging = _G.OmniGod.Charging,
+        CanAttack = Debounces.CanAttack,
+        Health = Humanoid.Health,
+        MaxHealth = Humanoid.MaxHealth
+    }
+end
+
+_G.OmniGod.ToggleEffects = function(enabled)
+    particleEmitter.Enabled = enabled
+    particleEmitter2.Enabled = enabled
+end
+
+print("\nScript initialization complete!")
+print("Type _G.OmniGod.GetStatus() in console to check status")
