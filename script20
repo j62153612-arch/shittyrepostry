@@ -1,0 +1,243 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Players = game:GetService("Players")
+
+local player = Players.LocalPlayer
+
+local char = player.Character or player.CharacterAdded:Wait()
+
+local backpack = player.Backpack
+
+local hrp = char:WaitForChild("HumanoidRootPart")
+
+local function getf3x()
+
+    for _, v in ipairs(backpack:GetChildren()) do
+
+        if v:FindFirstChild("SyncAPI") then
+
+            return v
+
+        end
+
+    end
+
+    for _, v in ipairs(char:GetChildren()) do
+
+        if v:FindFirstChild("SyncAPI") then
+
+            return v
+
+        end
+
+    end
+
+end
+
+local f3x = getf3x()
+
+if not f3x then
+
+    warn("you dont have f3x skid")
+
+    return
+
+end
+
+local sync = f3x.SyncAPI.ServerEndpoint
+
+local destination = workspace
+
+local function f3xbuildpart(fake_part, newCFrame)
+
+    local partType =
+
+        fake_part:IsA("WedgePart") and "Wedge" or
+
+        fake_part:IsA("Seat") and "Seat" or
+
+        fake_part:IsA("VehicleSeat") and "VehicleSeat" or
+
+        fake_part:IsA("TrussPart") and "Truss" or
+
+        fake_part:IsA("SpawnLocation") and "Spawn" or
+
+        fake_part.Shape == Enum.PartType.Ball and "Ball" or
+
+        fake_part.Shape == Enum.PartType.Cylinder and "Cylinder" or
+
+        "Normal"
+
+    local created = sync:InvokeServer("CreatePart", partType, newCFrame, destination)
+
+    if not created then return end
+
+    sync:InvokeServer("SyncResize", {
+
+        { Part = created, CFrame = newCFrame, Size = fake_part.Size }
+
+    })
+
+    sync:InvokeServer("SyncColor", {
+
+        { Part = created, Color = fake_part.Color, UnionColoring = true }
+
+    })
+
+    sync:InvokeServer("SyncMaterial", {
+
+        { Part = created, Material = fake_part.Material }
+
+    })
+
+    sync:InvokeServer("SyncCollision", {
+
+        { Part = created, CanCollide = fake_part.CanCollide }
+
+    })
+
+    if fake_part.Transparency > 0 then
+
+        sync:InvokeServer("SyncMaterial", {
+
+            { Part = created, Transparency = fake_part.Transparency }
+
+        })
+
+    end
+
+    local tex = fake_part:FindFirstChildOfClass("Texture")
+
+    if tex then
+
+        sync:InvokeServer("CreateTextures", {
+
+            { Part = created, Face = tex.Face, TextureType = "Texture" }
+
+        })
+
+        sync:InvokeServer("SyncTexture", {
+
+            {
+
+                Part = created,
+
+                Face = tex.Face,
+
+                TextureType = "Texture",
+
+                Texture = tex.Texture,
+
+                StudsPerTileU = tex.StudsPerTileU,
+
+                StudsPerTileV = tex.StudsPerTileV,
+
+                Transparency = tex.Transparency
+
+            }
+
+        })
+
+    end
+
+    local decal = fake_part:FindFirstChildOfClass("Decal")
+
+    if decal then
+
+        sync:InvokeServer("CreateTextures", {
+
+            { Part = created, Face = decal.Face, TextureType = "Decal" }
+
+        })
+
+        sync:InvokeServer("SyncTexture", {
+
+            {
+
+                Part = created,
+
+                Face = decal.Face,
+
+                TextureType = "Decal",
+
+                Texture = decal.Texture,
+
+                Transparency = decal.Transparency
+
+            }
+
+        })
+
+    end
+
+    local mesh = fake_part:FindFirstChildOfClass("SpecialMesh")
+
+    if mesh then
+
+        sync:InvokeServer("CreateMeshes", { { Part = created } })
+
+        sync:InvokeServer("SyncMesh", {
+
+            {
+
+                Part = created,
+
+                MeshId = mesh.MeshId,
+
+                TextureId = mesh.TextureId,
+
+                Scale = mesh.Scale
+
+            }
+
+        })
+
+    end
+
+end
+
+local model_id = "4858270704"
+
+local imported_model = game:GetObjects("rbxassetid://" .. model_id)[1]
+
+imported_model.Parent = game.Lighting
+
+if not imported_model.PrimaryPart then
+
+    imported_model.PrimaryPart = imported_model:FindFirstChildWhichIsA("BasePart")
+
+end
+
+local modelPivot = imported_model:GetPivot()
+
+local spawnCFrame =
+
+    hrp.CFrame
+
+    * CFrame.new(0, 3, 10)
+
+    * CFrame.Angles(math.rad(0), 0, 0)
+
+for _, v in ipairs(imported_model:GetDescendants()) do
+
+    if v:IsA("BasePart") then
+
+        task.spawn(function()
+
+            local relative = modelPivot:ToObjectSpace(v.CFrame)
+
+            local newCFrame = spawnCFrame * relative
+
+            f3xbuildpart(v, newCFrame)
+
+        end)
+
+    end
+
+end
+
+task.delay(10, function()
+
+    imported_model:Destroy()
+
+end)
