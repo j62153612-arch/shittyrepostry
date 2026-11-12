@@ -1,0 +1,73 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TextChatService = game:GetService("TextChatService")
+
+local player = Players.LocalPlayer
+
+local tool = Instance.new("Tool")
+tool.Name = "Worship"
+tool.RequiresHandle = false
+tool.Parent = player:WaitForChild("Backpack")
+
+local rq = ReplicatedStorage
+	:WaitForChild("HDAdminHDClient")
+	.Signals.RequestCommandModification
+
+local debounce = false
+
+local function ForceChat(msg)
+	if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+		local channel = TextChatService
+			:WaitForChild("TextChannels")
+			:WaitForChild("RBXGeneral")
+
+		pcall(function()
+			channel:SendAsync(msg)
+		end)
+	else
+		local chatEvent = ReplicatedStorage
+			:WaitForChild("DefaultChatSystemChatEvents")
+			:WaitForChild("SayMessageRequest")
+
+		pcall(function()
+			chatEvent:FireServer(msg, "All")
+		end)
+	end
+end
+
+local function playAnim()
+	local char = player.Character
+	if not char then return end
+
+	local humanoid = char:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+
+	local anim = Instance.new("Animation")
+	anim.AnimationId = "rbxassetid://182749109"
+
+	local track = humanoid:LoadAnimation(anim)
+	track:Play()
+end
+
+tool.Activated:Connect(function()
+	if debounce then return end
+	debounce = true
+
+	local num = math.random(2000)
+
+	playAnim()
+
+	ForceChat("PRAISE ALLAH "..num.." TIMES A DAY!!!! ALLAH AKBAR")
+
+	task.wait(2)
+	rq:InvokeServer(";explode me")
+
+	task.wait(0.1)
+	rq:InvokeServer(";music 247893371 ;volume 10")
+
+	task.wait(3.8)
+	rq:InvokeServer(";unmusic")
+
+	task.wait(3)
+	debounce = false
+end)
