@@ -1,0 +1,223 @@
+--[[
+	WARNING: Heads up! This script has not been verified by ScriptBlox. Use at your own risk!
+]]
+-- Stealed some code from MVSD
+
+local RunService = game:GetService("RunService")
+local player = game.Players.LocalPlayer
+local char = player.Character
+local tool
+local mouse = player:GetMouse()
+
+for i, v in player:GetDescendants() do
+    if v.Name == "SyncAPI" then tool = v.Parent end
+end
+for i, v in game.ReplicatedStorage:GetDescendants() do
+    if v.Name == "SyncAPI" then tool = v.Parent end
+end
+
+local remote = tool.SyncAPI.ServerEndpoint
+
+local function _(args) remote:InvokeServer(unpack(args)) end
+local function SetCollision(part, boolean) _( {[1]="SyncCollision",[2]={{["Part"]=part,["CanCollide"]=boolean}}} ) end
+local function SetAnchor(boolean, part) _( {[1]="SyncAnchor",[2]={{["Part"]=part,["Anchored"]=boolean}}} ) end
+local function CreatePart(cf, parent) _( {[1]="CreatePart",[2]="Normal",[3]=cf,[4]=parent} ) end
+local function MovePart(part, cf) _( {[1]="SyncMove",[2]={{["Part"]=part,["CFrame"]=cf}}} ) end
+local function Resize(part, size, cf) _( {[1]="SyncResize",[2]={{["Part"]=part,["CFrame"]=cf,["Size"]=size}}} ) end
+local function AddMesh(part) _( {[1]="CreateMeshes",[2]={{["Part"]=part}}} ) end
+local function SetMesh(part, meshid) _( {[1]="SyncMesh",[2]={{["Part"]=part,["MeshId"]="rbxassetid://"..meshid}}} ) end
+local function SetTexture(part, texid) _( {[1]="SyncMesh",[2]={{["Part"]=part,["TextureId"]="rbxassetid://"..texid}}} ) end
+local function SetName(part, stringg) _( {[1]="SetName",[2]={part},[3]=stringg} ) end
+local function MeshResize(part, size) _( {[1]="SyncMesh",[2]={{["Part"]=part,["Scale"]=size}}} ) end
+local function SetLocked(part, boolean) _( {[1]="SetLocked",[2]={part},[3]=boolean} ) end
+local function SetTrans(part, int) _( {[1]="SyncMaterial",[2]={{["Part"]=part,["Transparency"]=int}}} ) end
+local function Color(part, color) _( {[1]="SyncColor",[2]={{["Part"]=part,["Color"]=color,["UnionColoring"]=false}}} ) end
+local function DestroyPart(part) _( {[1]="Remove",[2]={part}} ) end
+
+local basicGun = Instance.new("Tool")
+basicGun.Name = "Basic Gun"
+basicGun.RequiresHandle = true
+basicGun.CanBeDropped = false
+basicGun.Parent = player.Backpack
+
+local fakeHandle = Instance.new("Part")
+fakeHandle.Name = "Handle"
+fakeHandle.Size = Vector3.new(0.2, 0.2, 0.2)
+fakeHandle.Transparency = 1
+fakeHandle.CanCollide = false
+fakeHandle.CanTouch = false
+fakeHandle.CanQuery = false
+fakeHandle.Massless = true
+fakeHandle.Parent = basicGun
+
+local weldFake = Instance.new("Weld")
+weldFake.Part0 = char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm") or char.HumanoidRootPart
+weldFake.Part1 = fakeHandle
+weldFake.C0 = CFrame.new(0, -0.4, -0.4)
+weldFake.Parent = fakeHandle
+
+local realHandle = nil
+local connection = nil
+
+local function startFollow()
+    if not realHandle or not realHandle.Parent then return end
+    SetAnchor(false, realHandle)
+    if connection then connection:Disconnect() end
+    connection = RunService.RenderStepped:Connect(function()
+        if fakeHandle and fakeHandle.Parent and realHandle and realHandle.Parent then
+            local targetCF = fakeHandle.CFrame * CFrame.Angles(math.rad(-90), 0, 0)
+            MovePart(realHandle, targetCF)
+        end
+    end)
+end
+
+local function stopFollow()
+    if connection then
+        connection:Disconnect()
+        connection = nil
+    end
+end
+
+local function F3xBeam(startPos, endPos)
+    local distance = (startPos - endPos).Magnitude
+    local midPos = startPos:Lerp(endPos, 0.5)
+    local cf = CFrame.lookAt(midPos, endPos)
+
+    CreatePart(cf, workspace)
+    task.wait(0.05)
+
+    local beamPart = nil
+    local best = math.huge
+    for _, v in workspace:GetChildren() do
+        if v:IsA("BasePart") then
+            local d = (v.Position - midPos).Magnitude
+            if d < best then
+                best = d
+                beamPart = v
+            end
+        end
+    end
+
+    if beamPart then
+        SetName(beamPart, "F3xBeam")
+        Resize(beamPart, Vector3.new(0.2, 0.2, distance), beamPart.CFrame)
+        Color(beamPart, Color3.fromRGB(255, 255, 255))
+        SetTrans(beamPart, 0)
+        SetCollision(beamPart, false)
+        SetAnchor(true, beamPart)
+        SetLocked(beamPart, true)
+
+        task.spawn(function()
+            for i = 1, 10 do
+                if beamPart and beamPart.Parent then
+                    SetTrans(beamPart, i / 10)
+                end
+                task.wait(0.05)
+            end
+            if beamPart and beamPart.Parent then
+                DestroyPart(beamPart)
+            end
+        end)
+    end
+end
+
+basicGun.Equipped:Connect(function()
+    if realHandle then
+        stopFollow()
+        DestroyPart(realHandle)
+        realHandle = nil
+        task.wait(0.1)
+    end
+
+    local spawnCF = char.HumanoidRootPart.CFrame * CFrame.new(0, 0, -3)
+    CreatePart(spawnCF, workspace)
+    task.wait(0.3)
+
+    local best = math.huge
+    local foundPart = nil
+    for _, v in workspace:GetChildren() do
+        if v:IsA("BasePart") then
+            local d = (v.Position - spawnCF.Position).Magnitude
+            if d < best then
+                best = d
+                foundPart = v
+            end
+        end
+    end
+
+    if not foundPart then return end
+    realHandle = foundPart
+
+    SetName(realHandle, "F3xHandle")
+    task.wait(0.1)
+    SetCollision(realHandle, false)
+    task.wait(0.1)
+    SetAnchor(true, realHandle)
+    task.wait(0.1)
+    SetLocked(realHandle, false)
+    task.wait(0.1)
+    SetTrans(realHandle, 0)
+    task.wait(0.1)
+    Color(realHandle, Color3.fromRGB(255, 255, 255))
+    task.wait(0.1)
+    Resize(realHandle, Vector3.new(2, 2, 2), realHandle.CFrame)
+    task.wait(0.1)
+    AddMesh(realHandle)
+    task.wait(0.3)
+    SetMesh(realHandle, "79401392")
+    task.wait(0.3)
+    SetTexture(realHandle, "8478112339")
+    task.wait(0.2)
+    MeshResize(realHandle, Vector3.new(2, 2, 2))
+    task.wait(0.2)
+
+    startFollow()
+end)
+
+basicGun.Unequipped:Connect(function()
+    stopFollow()
+    if realHandle then
+        DestroyPart(realHandle)
+        realHandle = nil
+    end
+end)
+
+basicGun.Activated:Connect(function()
+    if not realHandle then return end
+    
+    local origin = realHandle.Position
+    local targetPos = mouse.Hit.Position
+    local direction = (targetPos - origin)
+    local unitDir = direction.Unit
+
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {char, realHandle}
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+
+    local rayResult = workspace:Raycast(origin, unitDir * 150, raycastParams)
+    
+    local endPos
+    if rayResult then
+        endPos = rayResult.Position
+    else
+        endPos = origin + (unitDir * 150)
+    end
+
+    F3xBeam(origin, endPos)
+
+    if rayResult then
+        local hitPart = rayResult.Instance
+        local hitModel = hitPart:FindFirstAncestorOfClass("Model")
+
+        if hitModel then
+            local humanoid = hitModel:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid.Health = 0
+                local head = hitModel:FindFirstChild("Head")
+                if head then
+                    DestroyPart(head)
+                end
+            end
+        end
+    end
+end)
