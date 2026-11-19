@@ -1,0 +1,59 @@
+-- Fire/Invoke all remotes containing "Give"
+
+local KEYWORD = "give"        -- حساس به بزرگ/کوچکی حروف نیست
+local DELAY = 0.05            -- فاصله بین هر ریموت (ثانیه)
+local ARGS = {}               -- آرگومان‌ها، مثلا: {"Sword", 1}
+local INCLUDE_NIL = true      -- ریموت‌های داخل nil هم بررسی بشن
+
+local seen, remotes = {}, {}
+
+local function check(obj)
+    if seen[obj] then return end
+    local ok, isRemote = pcall(function()
+        return obj:IsA("RemoteEvent")
+            or obj:IsA("RemoteFunction")
+            or obj:IsA("UnreliableRemoteEvent")
+    end)
+    if ok and isRemote and string.find(string.lower(obj.Name), KEYWORD, 1, true) then
+        seen[obj] = true
+        table.insert(remotes, obj)
+    end
+end
+
+for _, v in ipairs(game:GetDescendants()) do
+    check(v)
+end
+
+if INCLUDE_NIL then
+    if getnilinstances then
+        for _, v in ipairs(getnilinstances()) do check(v) end
+    end
+    if getinstances then
+        for _, v in ipairs(getinstances()) do check(v) end
+    end
+end
+
+print(("[GiveFirer] %d remote found"):format(#remotes))
+
+for _, remote in ipairs(remotes) do
+    task.spawn(function()
+        local ok, result
+        if remote:IsA("RemoteFunction") then
+            ok, result = pcall(function()
+                return remote:InvokeServer(table.unpack(ARGS))
+            end)
+        else
+            ok, result = pcall(function()
+                remote:FireServer(table.unpack(ARGS))
+            end)
+        end
+        print(("[GiveFirer] %s | %s | %s"):format(
+            remote:GetFullName(),
+            ok and "OK" or "ERROR",
+            tostring(result)
+        ))
+    end)
+    task.wait(DELAY)
+end
+
+print("[GiveFirer] Done")
