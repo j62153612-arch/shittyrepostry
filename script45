@@ -1,0 +1,61 @@
+-- Fire All RemoteEvents + Invoke All RemoteFunctions (یک بار)
+
+local DELAY = 0.05 -- فاصله بین هر ریموت
+local BLACKLIST = {
+    -- اسم ریموت‌هایی که نمی‌خوای اجرا بشن
+    -- "RemoteName",
+}
+
+local blacklisted = {}
+for _, name in ipairs(BLACKLIST) do
+    blacklisted[name] = true
+end
+
+local seen = {}
+local remotes = {}
+
+local function collect(list)
+    for _, inst in ipairs(list) do
+        if typeof(inst) == "Instance"
+            and (inst:IsA("RemoteEvent") or inst:IsA("RemoteFunction"))
+            and not seen[inst] then
+            seen[inst] = true
+            if not blacklisted[inst.Name] then
+                table.insert(remotes, inst)
+            end
+        end
+    end
+end
+
+pcall(function() collect(game:GetDescendants()) end)
+pcall(function() collect(getnilinstances()) end)
+pcall(function() collect(getinstances()) end)
+
+local events, functions = 0, 0
+for _, r in ipairs(remotes) do
+    if r:IsA("RemoteEvent") then events += 1 else functions += 1 end
+end
+
+local fired, invoked, failed = 0, 0, 0
+
+task.spawn(function()
+    for _, remote in ipairs(remotes) do
+        if remote:IsA("RemoteEvent") then
+            local ok = pcall(function()
+                remote:FireServer()
+            end)
+            if ok then fired += 1 else failed += 1 end
+        else
+            -- InvokeServer yield می‌کنه، پس توی thread جدا اجرا میشه
+            task.spawn(function()
+                local ok = pcall(function()
+                    remote:InvokeServer()
+                end)
+                if ok then invoked += 1 else failed += 1 end
+            end)
+        end
+        task.wait(DELAY)
+    end
+
+    task.wait(3) -- کمی صبر برای جواب RemoteFunctionها
+end)
