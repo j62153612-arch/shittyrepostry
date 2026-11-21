@@ -1,0 +1,686 @@
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+
+local State = {
+    activeTesting = true,
+    autoTestFindings = true,
+    running = false,
+    delay = 0.01,
+    remotes = {},
+    Findings = {},
+    counters = {
+        discovered = 0, queued = 0, sent = 0, returned = 0,
+        explicitAccepted = 0, explicitRejected = 0, errors = 0, skipped = 0
+    },
+    skipRisky = true,
+    categorySkips = {
+        voice = false,
+        admin = false,
+        teleport = false,
+        update = true,
+        purchase = false,
+        damage = false,
+        currency = false,
+        chat = false,
+        gamepass = true,
+        devproduct = true,
+        shop = false,
+        reward = false,
+        quest = false,
+        leaderstat = false,
+        inventory = false,
+        data = true
+    }
+}
+
+local SkipOptions = {
+    {key = "voice", label = "Skip Voice"},
+    {key = "admin", label = "Skip Admin"},
+    {key = "teleport", label = "Skip Teleport"},
+    {key = "update", label = "Skip Update"},
+    {key = "purchase", label = "Skip Purchase"},
+    {key = "damage", label = "Skip Damage"},
+    {key = "currency", label = "Skip Currency"},
+    {key = "chat", label = "Skip Chat"},
+    {key = "gamepass", label = "Skip GamePass"},
+    {key = "devproduct", label = "Skip DevProduct"},
+    {key = "shop", label = "Skip Shop"},
+    {key = "reward", label = "Skip Reward"},
+    {key = "quest", label = "Skip Quest"},
+    {key = "leaderstat", label = "Skip Leaderstat"},
+    {key = "inventory", label = "Skip Inventory"},
+}
+
+local Palette = {
+    INFO = Color3.fromRGB(0, 255, 110),
+    SCAN = Color3.fromRGB(0, 235, 130),
+    DISCOVERED = Color3.fromRGB(50, 255, 140),
+    QUEUED = Color3.fromRGB(0, 210, 100),
+    TEST = Color3.fromRGB(110, 255, 130),
+    SENT = Color3.fromRGB(70, 245, 120),
+    RETURNED = Color3.fromRGB(0, 255, 120),
+    ACCEPTED = Color3.fromRGB(120, 255, 120),
+    REJECTED = Color3.fromRGB(20, 160, 75),
+    WARN = Color3.fromRGB(140, 255, 100),
+    ERROR = Color3.fromRGB(30, 180, 80),
+    SKIPPED = Color3.fromRGB(25, 110, 55),
+    COMPLETE = Color3.fromRGB(0, 255, 150),
+    SYSTEM = Color3.fromRGB(80, 255, 130),
+    Vortyx = Color3.fromRGB(0, 255, 100),
+    SUCCESS = Color3.fromRGB(90, 255, 120),
+}
+
+local GuiLogLines = {}
+local ConsoleVisible = true
+local SkipOpen = false
+
+local function rgbHex(c)
+    return string.format("#%02X%02X%02X", math.floor(c.R * 255), math.floor(c.G * 255), math.floor(c.B * 255))
+end
+
+local function escapeRichText(text)
+    local s = tostring(text)
+    s = s:gsub("&", "&")
+    s = s:gsub("<", "<")
+    s = s:gsub(">", ">")
+    s = s:gsub('"', [["]])
+    return s
+end
+
+local function resetCounters()
+    for k in pairs(State.counters) do State.counters[k] = 0 end
+end
+
+local function makeDraggable(dragHandle, targetFrame)
+    local dragging = false
+    local dragInput, mousePos, framePos
+
+    dragHandle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            mousePos = input.Position
+            framePos = targetFrame.Position
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    dragHandle.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - mousePos
+            targetFrame.Position = UDim2.new(
+                framePos.X.Scale, framePos.X.Offset + delta.X,
+                framePos.Y.Scale, framePos.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+
+-- GUI Setup (مشکی و سبز، بدون UICorner)
+local ConsoleGui = Instance.new("ScreenGui")
+ConsoleGui.Name = "FinderConsole"
+ConsoleGui.ResetOnSpawn = false
+ConsoleGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ConsoleGui.Parent = gethui and gethui() or CoreGui
+
+local CONSOLE_W, CONSOLE_H = 560, 240
+local ConsoleFrame = Instance.new("Frame")
+ConsoleFrame.Size = UDim2.fromOffset(CONSOLE_W, CONSOLE_H)
+ConsoleFrame.Position = UDim2.new(0.5, -CONSOLE_W / 2, 1, -(CONSOLE_H + 14))
+ConsoleFrame.BackgroundColor3 = Color3.fromRGB(5, 10, 7)
+ConsoleFrame.BorderSizePixel = 1
+ConsoleFrame.BorderColor3 = Color3.fromRGB(0, 190, 80)
+ConsoleFrame.Parent = ConsoleGui
+
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, 24)
+Header.BackgroundColor3 = Color3.fromRGB(8, 18, 12)
+Header.BorderSizePixel = 1
+Header.BorderColor3 = Color3.fromRGB(0, 140, 60)
+Header.Parent = ConsoleFrame
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -245, 1, 0)
+Title.Position = UDim2.fromOffset(8, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "Vulnerability Finder Ultimate"
+Title.TextSize = 12
+Title.TextColor3 = Color3.fromRGB(0, 255, 110)
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = Header
+
+makeDraggable(Header, ConsoleFrame)
+
+local SkipMenuBtn = Instance.new("TextButton")
+SkipMenuBtn.Name = "SkipMenuButton"
+SkipMenuBtn.Size = UDim2.fromOffset(52, 18)
+SkipMenuBtn.Position = UDim2.new(1, -234, 0.5, -9)
+SkipMenuBtn.BackgroundColor3 = Color3.fromRGB(10, 26, 16)
+SkipMenuBtn.BorderSizePixel = 1
+SkipMenuBtn.BorderColor3 = Color3.fromRGB(0, 170, 70)
+SkipMenuBtn.Text = "Skip"
+SkipMenuBtn.TextSize = 11
+SkipMenuBtn.TextColor3 = Color3.fromRGB(0, 255, 110)
+SkipMenuBtn.Parent = Header
+
+local TestBtn = Instance.new("TextButton")
+TestBtn.Name = "TestButton"
+TestBtn.Size = UDim2.fromOffset(58, 18)
+TestBtn.Position = UDim2.new(1, -176, 0.5, -9)
+TestBtn.BackgroundColor3 = Color3.fromRGB(10, 32, 18)
+TestBtn.BorderSizePixel = 1
+TestBtn.BorderColor3 = Color3.fromRGB(0, 200, 85)
+TestBtn.Text = "Test"
+TestBtn.TextSize = 11
+TestBtn.TextColor3 = Color3.fromRGB(0, 255, 110)
+TestBtn.Parent = Header
+
+local StopBtn = Instance.new("TextButton")
+StopBtn.Name = "StopButton"
+StopBtn.Size = UDim2.fromOffset(54, 18)
+StopBtn.Position = UDim2.new(1, -112, 0.5, -9)
+StopBtn.BackgroundColor3 = Color3.fromRGB(10, 24, 15)
+StopBtn.BorderSizePixel = 1
+StopBtn.BorderColor3 = Color3.fromRGB(0, 160, 65)
+StopBtn.Text = "Stop"
+StopBtn.TextSize = 11
+StopBtn.TextColor3 = Color3.fromRGB(70, 255, 130)
+StopBtn.Parent = Header
+
+local HideBtn = Instance.new("TextButton")
+HideBtn.Size = UDim2.fromOffset(48, 18)
+HideBtn.Position = UDim2.new(1, -52, 0.5, -9)
+HideBtn.BackgroundColor3 = Color3.fromRGB(10, 24, 15)
+HideBtn.BorderSizePixel = 1
+HideBtn.BorderColor3 = Color3.fromRGB(0, 160, 65)
+HideBtn.Text = "Hide"
+HideBtn.TextSize = 11
+HideBtn.TextColor3 = Color3.fromRGB(0, 255, 110)
+HideBtn.Parent = Header
+
+-- بخش داخلی لیست Skip داخل خود کنسول
+local SkipBar = Instance.new("ScrollingFrame")
+SkipBar.Name = "SkipCategoriesBar"
+SkipBar.Size = UDim2.new(1, -12, 0, 52)
+SkipBar.Position = UDim2.fromOffset(6, 28)
+SkipBar.BackgroundColor3 = Color3.fromRGB(7, 14, 9)
+SkipBar.BorderSizePixel = 1
+SkipBar.BorderColor3 = Color3.fromRGB(0, 130, 55)
+SkipBar.ScrollBarThickness = 4
+SkipBar.ScrollBarImageColor3 = Color3.fromRGB(0, 190, 80)
+SkipBar.CanvasSize = UDim2.new(0, 0, 0, 0)
+SkipBar.AutomaticCanvasSize = Enum.AutomaticSize.Y
+SkipBar.Visible = false
+SkipBar.Parent = ConsoleFrame
+
+local SkipGrid = Instance.new("UIGridLayout")
+SkipGrid.CellSize = UDim2.fromOffset(102, 20)
+SkipGrid.CellPadding = UDim2.fromOffset(4, 4)
+SkipGrid.Parent = SkipBar
+
+local Scroll = Instance.new("ScrollingFrame")
+Scroll.Size = UDim2.new(1, -12, 1, -32)
+Scroll.Position = UDim2.fromOffset(6, 28)
+Scroll.BackgroundColor3 = Color3.fromRGB(4, 8, 5)
+Scroll.BorderSizePixel = 0
+Scroll.ScrollBarThickness = 5
+Scroll.ScrollBarImageColor3 = Color3.fromRGB(0, 180, 75)
+Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+Scroll.Parent = ConsoleFrame
+
+local Layout = Instance.new("UIListLayout", Scroll)
+Layout.Padding = UDim.new(0, 2)
+
+local function refreshConsoleLayout()
+    if not ConsoleVisible then
+        SkipBar.Visible = false
+        Scroll.Visible = false
+        ConsoleFrame.Size = UDim2.fromOffset(CONSOLE_W, 24)
+        return
+    end
+
+    ConsoleFrame.Size = UDim2.fromOffset(CONSOLE_W, CONSOLE_H)
+    SkipBar.Visible = SkipOpen
+    Scroll.Visible = true
+
+    if SkipOpen then
+        SkipBar.Position = UDim2.fromOffset(6, 28)
+        SkipBar.Size = UDim2.new(1, -12, 0, 52)
+        Scroll.Position = UDim2.fromOffset(6, 84)
+        Scroll.Size = UDim2.new(1, -12, 1, -90)
+    else
+        Scroll.Position = UDim2.fromOffset(6, 28)
+        Scroll.Size = UDim2.new(1, -12, 1, -34)
+    end
+end
+
+for _, opt in ipairs(SkipOptions) do
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.fromOffset(102, 20)
+    btn.BorderSizePixel = 1
+    btn.BorderColor3 = Color3.fromRGB(0, 150, 60)
+    btn.TextSize = 11
+    btn.Parent = SkipBar
+
+    local function syncBtn()
+        local active = State.categorySkips[opt.key] == true
+        btn.Text = (active and "[x] " or "[ ] ") .. opt.label:gsub("^Skip ", "")
+        btn.BackgroundColor3 = active and Color3.fromRGB(16, 48, 26) or Color3.fromRGB(8, 18, 12)
+        btn.TextColor3 = active and Color3.fromRGB(90, 255, 130) or Color3.fromRGB(0, 185, 80)
+    end
+
+    syncBtn()
+    btn.MouseButton1Click:Connect(function()
+        State.categorySkips[opt.key] = not State.categorySkips[opt.key]
+        syncBtn()
+    end)
+end
+
+SkipMenuBtn.MouseButton1Click:Connect(function()
+    if not ConsoleVisible then return end
+    SkipOpen = not SkipOpen
+    refreshConsoleLayout()
+end)
+
+HideBtn.MouseButton1Click:Connect(function()
+    ConsoleVisible = not ConsoleVisible
+    HideBtn.Text = ConsoleVisible and "Hide" or "Show"
+    refreshConsoleLayout()
+end)
+
+local function emit(level, message, details)
+    if type(GuiLogLines) ~= "table" then
+        GuiLogLines = {}
+    end
+
+    level = string.upper(level or "INFO")
+    local timeText = os.date("%H:%M:%S")
+    local color = Palette[level] or Palette.INFO
+
+    local row = Instance.new("TextLabel")
+    row.Size = UDim2.new(1, -8, 0, 16)
+    row.AutomaticSize = Enum.AutomaticSize.Y
+    row.BackgroundTransparency = 1
+    row.RichText = true
+    row.TextWrapped = true
+    row.TextSize = 12
+    row.TextColor3 = Color3.fromRGB(80, 255, 130)
+    row.TextXAlignment = Enum.TextXAlignment.Left
+    row.Text = string.format(
+        '<font color="#009944">[%s]</font> <font color="%s">[%s]</font> %s%s',
+        timeText, rgbHex(color), escapeRichText(level), escapeRichText(message),
+        details and (' <font color="#44CC77">| ' .. escapeRichText(details) .. "</font>") or ""
+    )
+    row.Parent = Scroll
+
+    table.insert(GuiLogLines, row)
+    if #GuiLogLines > 400 then
+        local old = table.remove(GuiLogLines, 1)
+        if old then old:Destroy() end
+    end
+
+    task.defer(function()
+        if Scroll and Layout then
+            Scroll.CanvasPosition = Vector2.new(0, math.max(0, Layout.AbsoluteContentSize.Y - Scroll.AbsoluteWindowSize.Y))
+        end
+    end)
+end
+
+local function identifyKind(obj)
+    if obj:IsA("RemoteEvent") then return "RemoteEvent", true, "event" end
+    if obj:IsA("RemoteFunction") then return "RemoteFunction", true, "function" end
+    if obj.ClassName == "UnreliableRemoteEvent" then return "UnreliableRemoteEvent", true, "event" end
+    return nil, false, nil
+end
+
+local function isDefaultRobloxRemote(record)
+    local path = record.path:lower()
+    local name = record.name:lower()
+    if path:find("replicatedstorage") and (name:find("default") or name:find("rbx") or name:find("system")) then return true end
+    if path:find("starterplayer") or path:find("coregui") then return true end
+    return false
+end
+
+local function isRisky(remote)
+    if not remote or not remote.name then return false end
+    local n = remote.name:lower()
+    local risky = {
+        "kick", "ban", "teleport", "admin", "rank", "execute", "command", "crash",
+        "punish", "moderator", "anticheat", "report", "banish", "flag", "detect",
+        "security", "validate", "auth", "hdadmin", "currentcall", "updatecurrent",
+        "playtest", "update", "claim", "getserverchannel", "syncdata", "getsync", "data"
+    }
+    for _, word in ipairs(risky) do
+        if n:find(word) then return true end
+    end
+    return false
+end
+
+local function isCurrencyRemote(name)
+    local n = name:lower()
+    return n:find("cash") or n:find("money") or n:find("coin") or n:find("currency") or n:find("balance")
+end
+
+local TestPayloads = {
+    {name = "No Args", args = {}},
+    {name = "Test String", args = {"FINDER_TEST"}},
+    {name = "Money Arg", args = {"Money", 999999999}},
+    {name = "Give Money + Player", args = {"Give", "Money", 999999999, LocalPlayer}},
+    {name = "Give Gun Arg", args = {"Give", "Gun"}},
+    {name = "Gun + Player", args = {"Gun", LocalPlayer}},
+    {name = "Give Item + Player", args = {"Give", "AK47", LocalPlayer}},
+    {name = "Big Number", args = {999999999}},
+    {name = "Player Self", args = {LocalPlayer}},
+    {name = "Big + Player", args = {999999999, LocalPlayer}},
+    {name = "Nil Test", args = {nil}},
+    {name = "Empty Table", args = {{}}},
+    {name = "Negative", args = {-999999}},
+    {name = "Recycle Style", args = {1, 999999, true}},
+    {name = "Multiple Players", args = {LocalPlayer, LocalPlayer}},
+}
+
+local function getAbuseScenario(name)
+    local n = name:lower()
+    if n:find("cash") or n:find("money") or n:find("coin") or n:find("currency") then return "Currency / Money Dupe" end
+    if n:find("gun") or n:find("weapon") or n:find("give") then return "Give Gun / Item Exploit" end
+    if n:find("recycle") or n:find("delete") or n:find("sell") or n:find("destroy") then return "Inventory Exploit" end
+    if n:find("damage") or n:find("hurt") then return "One Shot Players" end
+    if n:find("admin") then return "Get Admin" end
+    if n:find("purchase") or n:find("buy") then return "Free Purchases" end
+    return "General Abuse"
+end
+
+local function getExploitExample(remote)
+    local nameLower = remote.name:lower()
+    local call = remote.mode == "event" and "FireServer" or "InvokeServer"
+    if nameLower:find("cash") or nameLower:find("money") or nameLower:find("currency") then
+        return string.format([[-- MONEY / CURRENCY EXPLOIT
+local remote = %s
+for i = 1, 60 do
+    remote:%s("Give", "Money", 999999999, game.Players.LocalPlayer)
+    task.wait(0.07)
+end
+print("Money exploit finished")]], remote.path, call)
+    elseif nameLower:find("gun") or nameLower:find("weapon") or nameLower:find("give") then
+        return string.format([[-- GIVE GUN / ITEM EXPLOIT
+local remote = %s
+remote:%s("Give", "Gun", game.Players.LocalPlayer)
+print("Give Gun sent")]], remote.path, call)
+    else
+        return string.format([[-- GENERAL EXPLOIT
+local remote = %s
+for i = 1, 80 do
+    remote:%s("Give", "Money", 999999999)
+    task.wait(0.05)
+end
+print("Abuse finished")]], remote.path, call)
+    end
+end
+
+local autoTestExploitFindings
+
+local function addFinding(remote, severity, title, evidence)
+    table.insert(State.Findings, {
+        remote = remote,
+        severity = severity,
+        title = title,
+        evidence = evidence,
+        abuse = getAbuseScenario(remote.name),
+        exploitScript = getExploitExample(remote)
+    })
+    emit("Vortyx", title, remote.name)
+
+    if State.autoTestFindings and not State.running then
+        task.spawn(autoTestExploitFindings)
+    end
+end
+
+local function printVortyxExploitReport()
+    emit("Vortyx", "=== FULL EXPLOIT REPORT ===", #State.Findings .. " findings")
+    for i, f in ipairs(State.Findings) do
+        emit("Vortyx", string.format("#%02d [%s] %s", i, f.severity, f.remote.name), f.remote.path)
+        emit("INFO", "Abuse", f.abuse)
+        emit("INFO", "Evidence", f.evidence)
+        emit("SYSTEM", f.exploitScript, "")
+        print("\n" .. f.exploitScript)
+    end
+end
+
+local function getPlayerCurrency()
+    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+    if leaderstats then
+        for _, v in ipairs(leaderstats:GetChildren()) do
+            if (v:IsA("IntValue") or v:IsA("NumberValue")) and
+               (v.Name:lower():find("cash") or v.Name:lower():find("money") or v.Name:lower():find("coin")) then
+                return v, v.Value
+            end
+        end
+    end
+    return nil, 0
+end
+
+local function testCurrencyRemote(remoteRecord)
+    local currencyObj, before = getPlayerCurrency()
+    if not currencyObj then return false end
+
+    pcall(function()
+        if remoteRecord.mode == "event" then
+            remoteRecord.instance:FireServer("Money", 999999999)
+        else
+            remoteRecord.instance:InvokeServer("Money", 999999999)
+        end
+    end)
+    task.wait(0.8)
+    local _, after = getPlayerCurrency()
+
+    if after > before then
+        emit("SUCCESS", "REAL DUPE DETECTED!", remoteRecord.name .. " (+" .. (after - before) .. ")")
+        return true
+    end
+    return false
+end
+
+local function scanObjects()
+    State.remotes = {}
+    State.Findings = {}
+    resetCounters()
+    emit("SCAN", "Starting Deep Scan - Player Remotes", "")
+    print("=== FINDER SCAN START ===")
+
+    for _, obj in ipairs(game:GetDescendants()) do
+        if not State.running and TestBtn.Text == "..." then break end
+        local class, isNetwork, mode = identifyKind(obj)
+        if class and isNetwork then
+            local record = {
+                instance = obj,
+                name = obj.Name,
+                path = obj:GetFullName(),
+                class = class,
+                isNetwork = isNetwork,
+                mode = mode
+            }
+            if not isDefaultRobloxRemote(record) then
+                table.insert(State.remotes, record)
+                State.counters.discovered += 1
+
+                local logMsg = string.format("[%s] %s | %s", class, record.name, record.path)
+                emit("DISCOVERED", class, record.name .. " | " .. record.path)
+                print(logMsg)
+            end
+        end
+    end
+
+    emit("COMPLETE", "Scan Finished", State.counters.discovered .. " player remotes")
+    print("=== SCAN COMPLETE - Found " .. State.counters.discovered .. " player remotes ===")
+end
+
+autoTestExploitFindings = function()
+    if #State.Findings == 0 then
+        emit("WARN", "No findings to auto-test", "")
+        return
+    end
+
+    emit("Vortyx", "=== AUTO TESTING EXPLOIT FINDINGS ===", #State.Findings .. " targets")
+    for i, finding in ipairs(State.Findings) do
+        emit("TEST", string.format("Auto-Testing Finding #%02d", i), finding.remote.name)
+
+        local payloadsToTry = {
+            {"Money", 999999999},
+            {"Give", "Gun"},
+            {"Give", "Money", 999999999, LocalPlayer}
+        }
+
+        for _, args in ipairs(payloadsToTry) do
+            task.spawn(function()
+                local ok, result = pcall(function()
+                    if finding.remote.mode == "event" then
+                        finding.remote.instance:FireServer(table.unpack(args))
+                        return "SENT"
+                    else
+                        return finding.remote.instance:InvokeServer(table.unpack(args))
+                    end
+                end)
+
+                if ok then
+                    emit("RETURNED", "Auto-Exploit Test: " .. tostring(result), finding.remote.name)
+                else
+                    emit("ERROR", "Auto-Exploit Test Failed", finding.remote.name)
+                end
+            end)
+            task.wait(State.delay + 0.05)
+        end
+    end
+    emit("COMPLETE", "Auto Exploit Testing Finished", "")
+end
+
+local function runAuthorizedTests()
+    if State.running then
+        emit("WARN", "Already running")
+        return
+    end
+
+    State.running = true
+    TestBtn.Text = "..."
+    local total = 0
+
+    scanObjects()
+    emit("Vortyx", "=== ROBUST TESTING STARTED (AUTO EXPLOIT ON) ===")
+
+    task.spawn(function()
+        for i, remoteRecord in ipairs(State.remotes) do
+            if not State.running then break end
+            if not remoteRecord.isNetwork then continue end
+
+            local nameLower = remoteRecord.name:lower()
+            local skip = State.skipRisky and isRisky(remoteRecord) or
+                (State.categorySkips.voice and nameLower:find("voice")) or
+                (State.categorySkips.admin and nameLower:find("admin")) or
+                (State.categorySkips.teleport and nameLower:find("teleport")) or
+                (State.categorySkips.update and (nameLower:find("update") or nameLower:find("currentcall"))) or
+                (State.categorySkips.purchase and (nameLower:find("purchase") or nameLower:find("buy"))) or
+                (State.categorySkips.damage and nameLower:find("damage")) or
+                (State.categorySkips.currency and isCurrencyRemote(remoteRecord.name)) or
+                (State.categorySkips.chat and nameLower:find("chat")) or
+                (State.categorySkips.gamepass and nameLower:find("gamepass")) or
+                (State.categorySkips.devproduct and (nameLower:find("devproduct") or nameLower:find("product"))) or
+                (State.categorySkips.shop and (nameLower:find("shop") or nameLower:find("buy"))) or
+                (State.categorySkips.reward and nameLower:find("reward")) or
+                (State.categorySkips.quest and nameLower:find("quest")) or
+                (State.categorySkips.leaderstat and nameLower:find("leaderstat")) or
+                (State.categorySkips.inventory and (nameLower:find("recycle") or nameLower:find("sell") or nameLower:find("delete"))) or
+                nameLower:find("data") or nameLower:find("sync")
+
+            if skip then
+                State.counters.skipped += 1
+                emit("SKIPPED", "Skipped", remoteRecord.name)
+                continue
+            end
+
+            emit("QUEUED", string.format("Testing %d / %d", i, #State.remotes), remoteRecord.name)
+
+            local acceptedBad = false
+
+            for _, payload in ipairs(TestPayloads) do
+                if not State.running then break end
+                total += 1
+                emit("TEST", string.format("Firing %s | %s", remoteRecord.name, payload.name), "")
+
+                task.spawn(function()
+                    local ok, result = pcall(function()
+                        if remoteRecord.mode == "event" then
+                            remoteRecord.instance:FireServer(table.unpack(payload.args or {}))
+                            return "SENT"
+                        else
+                            return remoteRecord.instance:InvokeServer(table.unpack(payload.args or {}))
+                        end
+                    end)
+
+                    if ok then
+                        if remoteRecord.mode == "event" then
+                            State.counters.sent += 1
+                        else
+                            State.counters.returned += 1
+                            emit("RETURNED", "Returned: " .. tostring(result), remoteRecord.name)
+                            if type(result) == "boolean" and result == true then
+                                acceptedBad = true
+                            end
+                        end
+                    else
+                        State.counters.errors += 1
+                        emit("ERROR", "Failed", remoteRecord.name)
+                    end
+                end)
+
+                task.wait(State.delay)
+            end
+
+            if isCurrencyRemote(remoteRecord.name) then
+                if testCurrencyRemote(remoteRecord) then
+                    addFinding(remoteRecord, "Critical", "REAL Currency Dupe", "Money increased after firing")
+                else
+                    addFinding(remoteRecord, "High", "Currency Remote", "Detected but no increase")
+                end
+            elseif acceptedBad then
+                addFinding(remoteRecord, "Critical", "Epic Remote", "Accepted bad input")
+            end
+
+            task.wait(0.1)
+        end
+
+        State.running = false
+        TestBtn.Text = "Test"
+        emit("COMPLETE", "Testing Finished", total .. " requests")
+        task.wait(0.5)
+        printVortyxExploitReport()
+
+        if State.autoTestFindings and #State.Findings > 0 then
+            autoTestExploitFindings()
+        end
+    end)
+end
+
+StopBtn.MouseButton1Click:Connect(function()
+    if State.running then
+        State.running = false
+        TestBtn.Text = "Test"
+        emit("WARN", "Stopped by user", "")
+    else
+        emit("INFO", "Not running", "")
+    end
+end)
+
+TestBtn.MouseButton1Click:Connect(runAuthorizedTests)
+
+emit("SYSTEM", "Loaded", "")
