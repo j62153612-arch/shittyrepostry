@@ -674,7 +674,7 @@ end
 StopBtn.MouseButton1Click:Connect(function()
     if State.running then
         State.running = false
-        TestBtn.Text = "Test"
+        TestBtn.Text = "Scan"
         emit("WARN", "Stopped by user", "")
     else
         emit("INFO", "Not running", "")
