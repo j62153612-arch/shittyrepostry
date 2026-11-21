@@ -1,0 +1,1240 @@
+--==============================================================
+--  Invisible Panel  |  chat tools + self actions + spam
+--==============================================================
+if _G.a then
+    for _, v in pairs(_G.a) do
+        pcall(function() v:Disconnect() end)
+    end
+    _G.a = nil
+end
+
+local Players      = game:GetService("Players")
+local UserInput    = game:GetService("UserInputService")
+local RunService   = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local TextService  = game:GetService("TextChatService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+repeat task.wait() until Players.LocalPlayer
+local player = Players.LocalPlayer
+
+--=========================== CONFIG ===========================
+local GHOST_TRANSPARENCY = 0.5
+local STRONG_DENSITY     = 100
+
+-- Invisible: exact original behaviour. Set to true only if shift lock
+-- makes your camera glitch (it will then fall back to transparency only).
+local SAFE_IN_SHIFT_LOCK = false
+
+local ON_COLOR        = Color3.fromRGB(0, 214, 143)
+local STRONG_COLOR    = Color3.fromRGB(168, 120, 255)
+local OFF_COLOR       = Color3.fromRGB(56, 56, 66)
+local ON_TEXT         = Color3.fromRGB(4, 26, 18)
+local OFF_TEXT        = Color3.fromRGB(186, 188, 198)
+local PANEL_BG_TOP    = Color3.fromRGB(24, 24, 31)
+local PANEL_BG_BOTTOM = Color3.fromRGB(14, 14, 19)
+local TITLE_BG        = Color3.fromRGB(31, 31, 39)
+local CARD_BG         = Color3.fromRGB(18, 18, 24)
+local TEXT_MAIN       = Color3.fromRGB(236, 238, 245)
+local TEXT_DIM        = Color3.fromRGB(128, 131, 145)
+local FOOTER_TEXT     = "Drag the title bar to move"
+
+local SPAM_COLOR      = Color3.fromRGB(38, 54, 46)
+local SPAM_TEXT       = Color3.fromRGB(160, 224, 192)
+local MOVE_COLOR      = Color3.fromRGB(255, 176, 64)
+local ROTATE_COLOR    = Color3.fromRGB(64, 200, 255)
+
+--========================= CHARACTER ==========================
+local character, humanoid, rootPart
+local isEnabled = false
+local isStrengthened = false
+local parts = {}
+local conns = {}
+
+local function track(connection)
+    table.insert(conns, connection)
+    return connection
+end
+
+local function updateCharacterData()
+    character = player.Character or player.CharacterAdded:Wait()
+    humanoid  = character:WaitForChild("Humanoid")
+    rootPart  = character:WaitForChild("HumanoidRootPart")
+    parts = {}
+    for _, v in pairs(character:GetDescendants()) do
+        if v:IsA("BasePart") and v.Transparency == 0 then
+            table.insert(parts, v)
+        end
+    end
+end
+
+--=========================== HELPERS ==========================
+local function mk(class, props, parent)
+    local inst = Instance.new(class)
+    for k, v in pairs(props) do
+        inst[k] = v
+    end
+    inst.Parent = parent
+    return inst
+end
+
+local function mkCorner(parent, radius)
+    return mk("UICorner", { CornerRadius = radius or UDim.new(0, 8) }, parent)
+end
+
+local function mkStroke(parent, color, thickness, transparency)
+    return mk("UIStroke", {
+        Color = color,
+        Thickness = thickness or 1,
+        Transparency = transparency or 0,
+    }, parent)
+end
+
+-- Tiny click cooldown so a single click can't toggle twice
+local function debounce(fn, delay)
+    local last = 0
+    return function(...)
+        local now = os.clock()
+        if now - last < (delay or 0.15) then return end
+        last = now
+        fn(...)
+    end
+end
+
+--============================ GUI =============================
+local playerGui = player:WaitForChild("PlayerGui")
+local oldGui = playerGui:FindFirstChild("InvisibleGuiSystem")
+if oldGui then oldGui:Destroy() end
+
+local sg = mk("ScreenGui", {
+    Name = "InvisibleGuiSystem",
+    ResetOnSpawn = false,
+    IgnoreGuiInset = true,
+    DisplayOrder = 50,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+}, playerGui)
+
+local panel = mk("Frame", {
+    Name = "Panel",
+    Size = UDim2.fromOffset(560, 420),
+    Position = UDim2.new(0.5, -280, 0.1, 0),
+    BackgroundColor3 = PANEL_BG_TOP,
+    BorderSizePixel = 0,
+    Active = true,
+}, sg)
+
+mk("UIGradient", {
+    Rotation = 90,
+    Color = ColorSequence.new(PANEL_BG_TOP, PANEL_BG_BOTTOM),
+}, panel)
+
+mkCorner(panel, UDim.new(0, 14))
+local panelStroke = mkStroke(panel, Color3.fromRGB(52, 53, 64), 1, 0.15)
+
+-- Title bar (the only draggable part)
+local titleBar = mk("Frame", {
+    Name = "TitleBar",
+    Size = UDim2.new(1, 0, 0, 38),
+    BackgroundColor3 = TITLE_BG,
+    BorderSizePixel = 0,
+    Active = true,
+}, panel)
+
+mkCorner(titleBar, UDim.new(0, 14))
+
+local titleFill = mk("Frame", {
+    Size = UDim2.new(1, 0, 0, 12),
+    AnchorPoint = Vector2.new(0, 1),
+    Position = UDim2.new(0, 0, 1, 0),
+    BackgroundColor3 = TITLE_BG,
+    BorderSizePixel = 0,
+}, titleBar)
+
+mk("TextLabel", {
+    Size = UDim2.new(1, -90, 1, 0),
+    Position = UDim2.fromOffset(16, 0),
+    BackgroundTransparency = 1,
+    Text = "Pro Click Panel V2",
+    Font = Enum.Font.GothamBold,
+    TextSize = 13,
+    TextColor3 = TEXT_MAIN,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, titleBar)
+
+-- Close (X) button
+local closeBtn = mk("TextButton", {
+    AnchorPoint = Vector2.new(1, 0.5),
+    Position = UDim2.new(1, -10, 0.5, 0),
+    Size = UDim2.fromOffset(26, 24),
+    BackgroundColor3 = Color3.fromRGB(66, 32, 38),
+    Text = "X",
+    TextColor3 = Color3.fromRGB(255, 184, 194),
+    Font = Enum.Font.GothamBold,
+    TextSize = 12,
+    AutoButtonColor = false,
+    BorderSizePixel = 0,
+    Active = true,
+}, titleBar)
+mkCorner(closeBtn, UDim.new(0, 7))
+
+-- Collapse / Expand button
+local collapseBtn = mk("TextButton", {
+    AnchorPoint = Vector2.new(1, 0.5),
+    Position = UDim2.new(1, -42, 0.5, 0),
+    Size = UDim2.fromOffset(76, 24),
+    BackgroundColor3 = Color3.fromRGB(45, 46, 58),
+    Text = "Collapse",
+    TextColor3 = TEXT_MAIN,
+    Font = Enum.Font.GothamBold,
+    TextSize = 11,
+    AutoButtonColor = false,
+    BorderSizePixel = 0,
+    Active = true,
+}, titleBar)
+mkCorner(collapseBtn, UDim.new(0, 7))
+
+-- Accent line under the title
+local accent = mk("Frame", {
+    Size = UDim2.new(1, 0, 0, 2),
+    Position = UDim2.fromOffset(0, 38),
+    BackgroundColor3 = OFF_COLOR,
+    BorderSizePixel = 0,
+}, panel)
+
+mk("UIGradient", {
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0),
+        NumberSequenceKeypoint.new(0.6, 0.35),
+        NumberSequenceKeypoint.new(1, 1),
+    }),
+}, accent)
+
+-- Card factory
+local function createCard(position, size)
+    local card = mk("Frame", {
+        Position = position,
+        Size = size,
+        BackgroundColor3 = CARD_BG,
+        BackgroundTransparency = 0.2,
+        BorderSizePixel = 0,
+    }, panel)
+    mkCorner(card, UDim.new(0, 10))
+    mkStroke(card, Color3.fromRGB(48, 49, 60), 1, 0.35)
+    return card
+end
+
+local function createField(parent, position, size, placeholder, multiline)
+    local box = mk("TextBox", {
+        Position = position,
+        Size = size,
+        BackgroundColor3 = Color3.fromRGB(11, 11, 15),
+        BorderSizePixel = 0,
+        Text = "",
+        PlaceholderText = placeholder,
+        PlaceholderColor3 = Color3.fromRGB(110, 112, 124),
+        TextColor3 = TEXT_MAIN,
+        Font = Enum.Font.GothamMedium,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ClearTextOnFocus = false,
+        MultiLine = multiline and true or false,
+        TextYAlignment = multiline and Enum.TextYAlignment.Top or Enum.TextYAlignment.Center,
+    }, parent)
+    mkCorner(box, UDim.new(0, 7))
+    mkStroke(box, Color3.fromRGB(46, 47, 58), 1, 0.15)
+    mk("UIPadding", {
+        PaddingLeft = UDim.new(0, 8),
+        PaddingRight = UDim.new(0, 8),
+        PaddingTop = UDim.new(0, multiline and 6 or 0),
+        PaddingBottom = UDim.new(0, multiline and 6 or 0),
+    }, box)
+    return box
+end
+
+local function createActionButton(parent, props)
+    local btn = mk("TextButton", {
+        AnchorPoint = props.anchor or Vector2.new(0, 0),
+        Position = props.position,
+        Size = props.size,
+        BackgroundColor3 = props.color or Color3.fromRGB(45, 46, 58),
+        Text = props.text,
+        TextColor3 = props.textColor or TEXT_MAIN,
+        Font = Enum.Font.GothamBold,
+        TextSize = props.textSize or 12,
+        AutoButtonColor = false,
+        BorderSizePixel = 0,
+        Active = true,
+    }, parent)
+    mkCorner(btn, UDim.new(0, 8))
+    mkStroke(btn, Color3.fromRGB(72, 73, 86), 1, 0.4)
+    return btn
+end
+
+local function createToggleRow(parent, y, text, accentColor, wrap)
+    mk("TextLabel", {
+        Size = UDim2.fromOffset(116, wrap and 28 or 22),
+        Position = UDim2.fromOffset(12, wrap and y or y + 3),
+        BackgroundTransparency = 1,
+        Text = text,
+        Font = Enum.Font.GothamMedium,
+        TextSize = wrap and 12 or 14,
+        TextWrapped = wrap and true or false,
+        TextColor3 = TEXT_MAIN,
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, parent)
+
+    local btn = mk("TextButton", {
+        AnchorPoint = Vector2.new(1, 0),
+        Position = UDim2.new(1, -12, 0, y),
+        Size = UDim2.fromOffset(66, 28),
+        BackgroundColor3 = OFF_COLOR,
+        Text = "OFF",
+        TextColor3 = OFF_TEXT,
+        Font = Enum.Font.GothamBold,
+        TextSize = 12,
+        AutoButtonColor = false,
+        BorderSizePixel = 0,
+        Active = true,
+    }, parent)
+    mkCorner(btn, UDim.new(1, 0))
+    local s = mkStroke(btn, Color3.fromRGB(70, 71, 84), 1.5, 0.25)
+
+    local row = {}
+    row.button = btn
+    row.stroke = s
+    row.accentColor = accentColor or ON_COLOR
+    row.setVisual = function(state, animate)
+        local info = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        local bg = state and row.accentColor or OFF_COLOR
+        local tx = state and ON_TEXT or OFF_TEXT
+        btn.Text = state and "ON" or "OFF"
+        s.Color = state and row.accentColor or Color3.fromRGB(70, 71, 84)
+        if animate == false then
+            btn.BackgroundColor3 = bg
+            btn.TextColor3 = tx
+        else
+            TweenService:Create(btn, info, { BackgroundColor3 = bg, TextColor3 = tx }):Play()
+        end
+    end
+    return row
+end
+
+--=========================== CARDS ============================
+local chatCard = createCard(UDim2.fromOffset(16, 50), UDim2.fromOffset(300, 340))
+local ctrlCard = createCard(UDim2.fromOffset(332, 50), UDim2.fromOffset(212, 340))
+
+-- Chat side
+mk("TextLabel", {
+    Size = UDim2.fromOffset(60, 14),
+    Position = UDim2.fromOffset(12, 12),
+    BackgroundTransparency = 1,
+    Text = "TAG",
+    Font = Enum.Font.GothamBold,
+    TextSize = 10,
+    TextColor3 = TEXT_DIM,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, chatCard)
+
+local tagBox = createField(chatCard, UDim2.fromOffset(12, 28), UDim2.new(1, -24, 0, 26), "tag (e.g. ali)")
+
+mk("TextLabel", {
+    Size = UDim2.fromOffset(80, 14),
+    Position = UDim2.fromOffset(12, 62),
+    BackgroundTransparency = 1,
+    Text = "MESSAGE",
+    Font = Enum.Font.GothamBold,
+    TextSize = 10,
+    TextColor3 = TEXT_DIM,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, chatCard)
+
+local msgBox = createField(chatCard, UDim2.fromOffset(12, 78), UDim2.new(1, -24, 0, 50), "Type your message...", true)
+
+local sendBtn = createActionButton(chatCard, {
+    position = UDim2.fromOffset(12, 134),
+    size = UDim2.new(1, -24, 0, 30),
+    text = "Send Message",
+})
+
+local spamBtn = createActionButton(chatCard, {
+    position = UDim2.fromOffset(12, 170),
+    size = UDim2.new(1, -24, 0, 30),
+    text = "Spam",
+    color = SPAM_COLOR,
+    textColor = SPAM_TEXT,
+})
+
+mk("TextLabel", {
+    Size = UDim2.fromOffset(90, 12),
+    Position = UDim2.fromOffset(12, 206),
+    BackgroundTransparency = 1,
+    Text = "MSG / SEC",
+    Font = Enum.Font.GothamBold,
+    TextSize = 10,
+    TextColor3 = TEXT_DIM,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, chatCard)
+
+local rateBox = createField(chatCard, UDim2.fromOffset(12, 222), UDim2.fromOffset(130, 28), "5")
+rateBox.Text = "5"
+
+local unspamBtn = createActionButton(chatCard, {
+    position = UDim2.fromOffset(152, 222),
+    size = UDim2.fromOffset(136, 28),
+    text = "Unspam",
+    color = Color3.fromRGB(66, 32, 38),
+    textColor = Color3.fromRGB(255, 184, 194),
+})
+
+-- Controls side
+local invisRow = createToggleRow(ctrlCard, 14, "Invisible", ON_COLOR)
+local strongRow = createToggleRow(ctrlCard, 54, "Strengthen", STRONG_COLOR)
+local moveRow = createToggleRow(ctrlCard, 94, "Move Tool", MOVE_COLOR)
+local rotateRow = createToggleRow(ctrlCard, 134, "Rotate Tool", ROTATE_COLOR)
+local noAnimRow = createToggleRow(ctrlCard, 174, "Disable ToolNone Anim", Color3.fromRGB(255, 110, 140), true)
+
+local tripBtn = createActionButton(ctrlCard, {
+    position = UDim2.fromOffset(12, 218),
+    size = UDim2.fromOffset(90, 34),
+    text = "Trip",
+})
+
+local sitBtn = createActionButton(ctrlCard, {
+    position = UDim2.fromOffset(110, 218),
+    size = UDim2.fromOffset(90, 34),
+    text = "Sit",
+})
+
+mk("Frame", {
+    Size = UDim2.new(1, -24, 0, 1),
+    Position = UDim2.fromOffset(12, 260),
+    BackgroundColor3 = Color3.fromRGB(44, 45, 56),
+    BorderSizePixel = 0,
+}, ctrlCard)
+
+local hints = {
+    "Trip & Sit act on your character",
+    "Invisible skips the trick in shift lock",
+    "Move Tool: drag arrows on held tool",
+    "Rotate Tool: drag arcs on held tool",
+    "ToolNone Anim is stopped on the spot",
+}
+for i, text in ipairs(hints) do
+    mk("TextLabel", {
+        Size = UDim2.new(1, -24, 0, 14),
+        Position = UDim2.fromOffset(12, 264 + (i - 1) * 14),
+        BackgroundTransparency = 1,
+        Text = text,
+        Font = Enum.Font.GothamMedium,
+        TextSize = 10,
+        TextColor3 = TEXT_DIM,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTransparency = 0.15,
+    }, ctrlCard)
+end
+
+-- Footer
+local footer = mk("TextLabel", {
+    Size = UDim2.new(1, -32, 0, 14),
+    Position = UDim2.fromOffset(16, 396),
+    BackgroundTransparency = 1,
+    Text = FOOTER_TEXT,
+    Font = Enum.Font.Gotham,
+    TextSize = 11,
+    TextColor3 = TEXT_DIM,
+    TextTransparency = 0.35,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, panel)
+
+local footerToken = 0
+local footerBase = FOOTER_TEXT
+
+local function flashFooter(text, color)
+    footerToken = footerToken + 1
+    local myToken = footerToken
+    footer.Text = text
+    footer.TextColor3 = color or TEXT_DIM
+    task.delay(2.5, function()
+        if myToken == footerToken and footer.Parent then
+            footer.Text = footerBase
+            footer.TextColor3 = TEXT_DIM
+        end
+    end)
+end
+
+-- Entrance animation
+local panelScale = mk("UIScale", { Scale = 0.85 }, panel)
+TweenService:Create(panelScale,
+    TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+    { Scale = 1 }
+):Play()
+
+--========================= CHAT SEND ==========================
+local function buildMessage()
+    local raw = msgBox.Text
+    raw = raw:gsub("\n", " ")
+    raw = raw:gsub("^%s+", ""):gsub("%s+$", "")
+    if raw == "" then return nil end
+
+    local tag = tagBox.Text
+    tag = tag:gsub("^%s+", ""):gsub("%s+$", "")
+    if tag ~= "" then
+        return "[" .. tag .. "] " .. raw
+    end
+    return raw
+end
+
+-- Legacy chat system (SayMessageRequest)
+local function sendLegacy(text)
+    local holder = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+    local say = holder and holder:FindFirstChild("SayMessageRequest")
+    if not say then return false end
+    local ok = pcall(function()
+        say:FireServer(text, "All")
+    end)
+    return ok
+end
+
+-- New TextChatService
+local function sendTextChannel(text)
+    local channels = TextService:FindFirstChild("TextChannels")
+    if not channels then return false end
+
+    local tries = {}
+    local general = channels:FindFirstChild("RBXGeneral")
+    if general then
+        table.insert(tries, general)
+    end
+    for _, ch in ipairs(channels:GetChildren()) do
+        if ch:IsA("TextChannel") and ch ~= general then
+            table.insert(tries, ch)
+        end
+    end
+
+    for _, ch in ipairs(tries) do
+        local ok = pcall(function()
+            ch:SendAsync(text)
+        end)
+        if ok then
+            return true, ch.Name
+        end
+    end
+    return false
+end
+
+local function sendNormal(text)
+    if sendLegacy(text) then
+        return true, "legacy"
+    end
+    local ok, channel = sendTextChannel(text)
+    if ok then
+        return true, channel
+    end
+    return false
+end
+
+--========================= ACTIONS ============================
+local function doTrip()
+    local char = player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if hum and root then
+        hum:ChangeState(Enum.HumanoidStateType.FallingDown)
+        root.AssemblyLinearVelocity = root.CFrame.LookVector * 30
+    end
+end
+
+local function doSit()
+    local char = player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.Sit = not hum.Sit
+    end
+end
+
+local function refreshAccent(animate)
+    local color = isEnabled and ON_COLOR or (isStrengthened and STRONG_COLOR or OFF_COLOR)
+    if animate == false then
+        accent.BackgroundColor3 = color
+    else
+        TweenService:Create(accent,
+            TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+            { BackgroundColor3 = color }
+        ):Play()
+    end
+end
+
+local function applyInvisible()
+    for _, v in pairs(parts) do
+        if v and v.Parent then
+            v.Transparency = isEnabled and GHOST_TRANSPARENCY or 0
+        end
+    end
+end
+
+local function setEnabled(state)
+    isEnabled = state
+    invisRow.setVisual(isEnabled, true)
+    applyInvisible()
+    refreshAccent(true)
+end
+
+local function setStrengthen(state)
+    isStrengthened = state
+    strongRow.setVisual(isStrengthened, true)
+
+    local char = player.Character
+    if char then
+        for _, child in ipairs(char:GetDescendants()) do
+            if child:IsA("BasePart") then
+                if isStrengthened then
+                    child.CustomPhysicalProperties =
+                        PhysicalProperties.new(STRONG_DENSITY, 0.3, 0.5)
+                else
+                    child.CustomPhysicalProperties = nil
+                end
+            end
+        end
+    end
+
+    refreshAccent(true)
+end
+
+--========================== SPAM ==============================
+local spamToken = 0
+local isSpamming = false
+
+local function updateSpamVisuals()
+    if isSpamming then
+        spamBtn.BackgroundColor3 = ON_COLOR
+        spamBtn.TextColor3 = ON_TEXT
+    else
+        spamBtn.BackgroundColor3 = SPAM_COLOR
+        spamBtn.TextColor3 = SPAM_TEXT
+    end
+end
+
+local function getRate()
+    local rate = tonumber(rateBox.Text)
+    if not rate or rate ~= rate then rate = 5 end
+    return math.clamp(rate, 1, 50)
+end
+
+local function startSpam()
+    if not buildMessage() then
+        flashFooter("Message is empty")
+        return
+    end
+
+    isSpamming = true
+    updateSpamVisuals()
+
+    spamToken = spamToken + 1
+    local myToken = spamToken
+
+    task.spawn(function()
+        while myToken == spamToken and msgBox.Parent and panel.Parent do
+            local text = buildMessage()
+            if text then
+                pcall(sendNormal, text)
+            end
+            task.wait(1 / getRate())
+        end
+    end)
+
+    flashFooter(("Spamming x%d/sec"):format(getRate()))
+end
+
+local function stopSpam(silent)
+    local wasActive = isSpamming
+    spamToken = spamToken + 1
+    isSpamming = false
+    updateSpamVisuals()
+    if not silent then
+        flashFooter(wasActive and "Spam stopped" or "Not spamming")
+    end
+end
+
+--========================= MOVE TOOL ==========================
+-- Studio-style arrows around every equipped tool. Dragging an arrow
+-- changes Tool.GripPos (re-equipping the tool so the grip refreshes).
+local isMoveTool = false
+local moveHandles = {} -- [tool] = { part, folder, startGrip, pending, last }
+local handlesRoot = mk("Folder", { Name = "MoveToolHandles" }, sg)
+
+local MOVE_AXES = {
+    { faces = { Enum.NormalId.Right, Enum.NormalId.Left },   color = Color3.fromRGB(255, 70, 70) },  -- X
+    { faces = { Enum.NormalId.Top,   Enum.NormalId.Bottom }, color = Color3.fromRGB(70, 220, 90) },  -- Y
+    { faces = { Enum.NormalId.Back,  Enum.NormalId.Front },  color = Color3.fromRGB(80, 140, 255) }, -- Z
+}
+
+local function round2(n)
+    return math.floor(n * 100 + 0.5) / 100
+end
+
+local function getToolPart(tool)
+    local h = tool:FindFirstChild("Handle")
+    if h and h:IsA("BasePart") then
+        return h
+    end
+    for _, d in ipairs(tool:GetDescendants()) do
+        if d:IsA("BasePart") then
+            return d
+        end
+    end
+    return nil
+end
+
+local function applyGrip(tool, pos)
+    local char = player.Character
+    local backpack = player:FindFirstChildOfClass("Backpack")
+    if not (char and backpack and tool.Parent == char) then return end
+    tool.Parent = backpack
+    pcall(function()
+        tool.GripPos = pos
+    end)
+    tool.Parent = char
+end
+
+local function destroyToolHandles(tool)
+    local data = moveHandles[tool]
+    if data then
+        moveHandles[tool] = nil
+        pcall(function() data.folder:Destroy() end)
+    end
+end
+
+local function createToolHandles(tool, part)
+    local data = {
+        part = part,
+        folder = mk("Folder", { Name = "ToolHandles" }, handlesRoot),
+        startGrip = nil,
+        pending = nil,
+        last = 0,
+    }
+
+    local function flush()
+        if data.pending then
+            applyGrip(tool, data.pending)
+            data.pending = nil
+        end
+    end
+
+    for _, axis in ipairs(MOVE_AXES) do
+        local h = mk("Handles", {
+            Adornee = part,
+            Style = Enum.HandlesStyle.Movement,
+            Faces = Faces.new(table.unpack(axis.faces)),
+            Color3 = axis.color,
+        }, data.folder)
+
+        h.MouseButton1Down:Connect(function()
+            data.startGrip = tool.GripPos
+            data.pending = nil
+        end)
+
+        h.MouseDrag:Connect(function(face, distance)
+            if not data.startGrip then
+                data.startGrip = tool.GripPos
+            end
+            -- GripPos is expressed in the handle's local axes, inverted
+            local np = data.startGrip - Vector3.FromNormalId(face) * distance
+            np = Vector3.new(round2(np.X), round2(np.Y), round2(np.Z))
+            data.pending = np
+
+            local now = os.clock()
+            if now - data.last >= 0.04 then
+                data.last = now
+                if np ~= tool.GripPos then
+                    flush()
+                    flashFooter(("GripPos  %.2f, %.2f, %.2f"):format(np.X, np.Y, np.Z), MOVE_COLOR)
+                else
+                    data.pending = nil
+                end
+            end
+        end)
+
+        h.MouseButton1Up:Connect(function()
+            flush()
+            data.startGrip = nil
+        end)
+    end
+
+    moveHandles[tool] = data
+end
+
+local function syncMoveHandles()
+    local char = player.Character
+    local seen = {}
+
+    if isMoveTool and char then
+        for _, tool in ipairs(char:GetChildren()) do
+            if tool:IsA("Tool") then
+                local part = getToolPart(tool)
+                if part then
+                    seen[tool] = true
+                    local data = moveHandles[tool]
+                    if data and data.part ~= part then
+                        destroyToolHandles(tool)
+                        data = nil
+                    end
+                    if not data then
+                        createToolHandles(tool, part)
+                    end
+                end
+            end
+        end
+    end
+
+    for tool in pairs(moveHandles) do
+        if not seen[tool] then
+            destroyToolHandles(tool)
+        end
+    end
+end
+
+local function setMoveTool(state)
+    isMoveTool = state
+    moveRow.setVisual(isMoveTool, true)
+    syncMoveHandles()
+    if state then
+        flashFooter("Move Tool: equip a tool and drag the arrows", MOVE_COLOR)
+    end
+end
+
+-- Checked every frame (not by events) so the re-equip trick doesn't
+-- destroy the arrows in the middle of a drag.
+track(RunService.Heartbeat:Connect(function()
+    if isMoveTool then
+        syncMoveHandles()
+    end
+end))
+
+--========================= ROTATE TOOL ========================
+-- Studio-style rotation arcs around every equipped tool. Dragging an
+-- arc rotates the tool by changing Tool.Grip (same re-equip trick).
+local isRotateTool = false
+local rotateHandles = {} -- [tool] = { part, folder, startGrip, pending, last }
+
+local ROTATE_AXES = {
+    { axis = Enum.Axis.X, color = Color3.fromRGB(255, 70, 70) },
+    { axis = Enum.Axis.Y, color = Color3.fromRGB(70, 220, 90) },
+    { axis = Enum.Axis.Z, color = Color3.fromRGB(80, 140, 255) },
+}
+
+local function applyGripCF(tool, cf)
+    local char = player.Character
+    local backpack = player:FindFirstChildOfClass("Backpack")
+    if not (char and backpack and tool.Parent == char) then return end
+    tool.Parent = backpack
+    pcall(function()
+        tool.Grip = cf
+    end)
+    tool.Parent = char
+end
+
+local function destroyRotateHandles(tool)
+    local data = rotateHandles[tool]
+    if data then
+        rotateHandles[tool] = nil
+        pcall(function() data.folder:Destroy() end)
+    end
+end
+
+local function createRotateHandles(tool, part)
+    local data = {
+        part = part,
+        folder = mk("Folder", { Name = "ToolArcs" }, handlesRoot),
+        startGrip = nil,
+        pending = nil,
+        last = 0,
+    }
+
+    local function flush()
+        if data.pending then
+            applyGripCF(tool, data.pending)
+            data.pending = nil
+        end
+    end
+
+    for _, a in ipairs(ROTATE_AXES) do
+        local h = mk("ArcHandles", {
+            Adornee = part,
+            Axes = Axes.new(a.axis),
+            Color3 = a.color,
+        }, data.folder)
+
+        h.MouseButton1Down:Connect(function()
+            data.startGrip = tool.Grip
+            data.pending = nil
+        end)
+
+        h.MouseDrag:Connect(function(axis, relativeAngle)
+            if not data.startGrip then
+                data.startGrip = tool.Grip
+            end
+            -- snap to 1 degree
+            local step = math.rad(1)
+            local ang = math.floor(relativeAngle / step + 0.5) * step
+            -- rotating the handle by Q means Grip' = Q^-1 * Grip
+            local q = CFrame.fromAxisAngle(Vector3.FromAxis(axis), ang)
+            data.pending = q:Inverse() * data.startGrip
+
+            local now = os.clock()
+            if now - data.last >= 0.04 then
+                data.last = now
+                if data.pending ~= tool.Grip then
+                    flush()
+                    flashFooter(("Rotate %s  %d deg"):format(axis.Name, math.round(math.deg(ang))), ROTATE_COLOR)
+                else
+                    data.pending = nil
+                end
+            end
+        end)
+
+        h.MouseButton1Up:Connect(function()
+            flush()
+            data.startGrip = nil
+        end)
+    end
+
+    rotateHandles[tool] = data
+end
+
+local function syncRotateHandles()
+    local char = player.Character
+    local seen = {}
+
+    if isRotateTool and char then
+        for _, tool in ipairs(char:GetChildren()) do
+            if tool:IsA("Tool") then
+                local part = getToolPart(tool)
+                if part then
+                    seen[tool] = true
+                    local data = rotateHandles[tool]
+                    if data and data.part ~= part then
+                        destroyRotateHandles(tool)
+                        data = nil
+                    end
+                    if not data then
+                        createRotateHandles(tool, part)
+                    end
+                end
+            end
+        end
+    end
+
+    for tool in pairs(rotateHandles) do
+        if not seen[tool] then
+            destroyRotateHandles(tool)
+        end
+    end
+end
+
+local function setRotateTool(state)
+    isRotateTool = state
+    rotateRow.setVisual(isRotateTool, true)
+    syncRotateHandles()
+    if state then
+        flashFooter("Rotate Tool: equip a tool and drag the arcs", ROTATE_COLOR)
+    end
+end
+
+track(RunService.Heartbeat:Connect(function()
+    if isRotateTool then
+        syncRotateHandles()
+    end
+end))
+
+--==================== DISABLE TOOLNONE ANIM ==================
+-- Roblox's default Animate script plays "ToolNoneAnim" (arm raised pose)
+-- whenever a tool is held. While enabled, that track is stopped the
+-- moment it starts, and re-checked every frame as a backup.
+local isNoToolAnim = false
+local hookedAnimator = nil
+local hookConn = nil
+
+local function isToolNoneTrack(trackObj)
+    local anim = trackObj.Animation
+    if trackObj.Name == "ToolNoneAnim" or (anim and anim.Name == "ToolNoneAnim") then
+        return true
+    end
+    -- also match by AnimationId of the Animate script's toolnone animations
+    local char = player.Character
+    local animate = char and char:FindFirstChild("Animate")
+    local toolNone = animate and animate:FindFirstChild("toolnone")
+    if toolNone and anim then
+        for _, a in ipairs(toolNone:GetChildren()) do
+            if a:IsA("Animation") and a.AnimationId == anim.AnimationId then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function getAnimator()
+    local char = player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    return hum and hum:FindFirstChildOfClass("Animator")
+end
+
+local function killToolNone(animator)
+    for _, trackObj in ipairs(animator:GetPlayingAnimationTracks()) do
+        if isToolNoneTrack(trackObj) then
+            trackObj:Stop(0)
+        end
+    end
+end
+
+track(RunService.Heartbeat:Connect(function()
+    local animator = getAnimator()
+    if animator ~= hookedAnimator then
+        if hookConn then
+            hookConn:Disconnect()
+            hookConn = nil
+        end
+        hookedAnimator = animator
+        if animator then
+            hookConn = animator.AnimationPlayed:Connect(function(trackObj)
+                if isNoToolAnim and isToolNoneTrack(trackObj) then
+                    trackObj:Stop(0)
+                end
+            end)
+        end
+    end
+    if isNoToolAnim and animator then
+        killToolNone(animator)
+    end
+end))
+
+track({ Disconnect = function()
+    if hookConn then
+        hookConn:Disconnect()
+        hookConn = nil
+    end
+end })
+
+local function setNoToolAnim(state)
+    isNoToolAnim = state
+    noAnimRow.setVisual(isNoToolAnim, true)
+    if state then
+        local animator = getAnimator()
+        if animator then
+            killToolNone(animator)
+        end
+    end
+end
+
+--========================= COLLAPSE / CLOSE ===================
+local collapsed = false
+
+local function setCollapsed(state)
+    collapsed = state
+    collapseBtn.Text = state and "Expand" or "Collapse"
+    chatCard.Visible = not state
+    ctrlCard.Visible = not state
+    footer.Visible = not state
+    accent.Visible = not state
+    titleFill.Visible = not state
+    TweenService:Create(panel,
+        TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        { Size = state and UDim2.fromOffset(560, 38) or UDim2.fromOffset(560, 420) }
+    ):Play()
+end
+
+local function closePanel()
+    stopSpam(true)
+    setMoveTool(false)
+    setRotateTool(false)
+    setNoToolAnim(false)
+    setEnabled(false)
+    setStrengthen(false)
+    for _, c in ipairs(conns) do
+        pcall(function() c:Disconnect() end)
+    end
+    if _G.a == conns then
+        _G.a = nil
+    end
+    sg:Destroy()
+end
+
+--==================== BUTTON CONNECTIONS ======================
+invisRow.button.Activated:Connect(debounce(function()
+    setEnabled(not isEnabled)
+end))
+
+strongRow.button.Activated:Connect(debounce(function()
+    setStrengthen(not isStrengthened)
+end))
+
+tripBtn.Activated:Connect(function()
+    doTrip()
+end)
+
+sitBtn.Activated:Connect(function()
+    doSit()
+end)
+
+sendBtn.Activated:Connect(function()
+    local text = buildMessage()
+    if not text then
+        flashFooter("Message is empty")
+        return
+    end
+    if sendNormal(text) then
+        flashFooter("Message sent", ON_COLOR)
+    else
+        flashFooter("No chat system found")
+    end
+end)
+
+spamBtn.Activated:Connect(function()
+    if isSpamming then
+        stopSpam()
+    else
+        startSpam()
+    end
+end)
+
+unspamBtn.Activated:Connect(function()
+    stopSpam()
+end)
+
+-- Move Tool and Rotate Tool are mutually exclusive
+moveRow.button.Activated:Connect(debounce(function()
+    if not isMoveTool then
+        setRotateTool(false)
+    end
+    setMoveTool(not isMoveTool)
+end))
+
+rotateRow.button.Activated:Connect(debounce(function()
+    if not isRotateTool then
+        setMoveTool(false)
+    end
+    setRotateTool(not isRotateTool)
+end))
+
+noAnimRow.button.Activated:Connect(debounce(function()
+    setNoToolAnim(not isNoToolAnim)
+end))
+
+collapseBtn.Activated:Connect(function()
+    setCollapsed(not collapsed)
+end)
+
+closeBtn.Activated:Connect(function()
+    closePanel()
+end)
+
+--=========================== DRAG =============================
+local function makeDraggable(targetFrame, handle)
+    local uis = game:GetService("UserInputService")
+    local tweenService = game:GetService("TweenService")
+    handle = handle or targetFrame
+
+    local dragging, dragInput, dragStart, startPos
+
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = targetFrame.Position
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    handle.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    track(uis.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            local newPos = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+            tweenService:Create(targetFrame, TweenInfo.new(0.15), { Position = newPos }):Play()
+        end
+    end))
+end
+
+makeDraggable(panel, titleBar)
+
+--===================== INVISIBILITY LOOP ======================
+-- Exact original trick: every frame the character is moved 200000 studs
+-- down and the camera offset is compensated, so the server sees you far
+-- away while your own view stays where it was.
+local camShift = nil      -- world shift to apply to the camera
+local camHiddenPos = nil  -- where the root was while hidden
+
+track(RunService.Heartbeat:Connect(function()
+    camShift, camHiddenPos = nil, nil
+    if not isEnabled then return end
+    if SAFE_IN_SHIFT_LOCK
+        and UserInput.MouseBehavior == Enum.MouseBehavior.LockCenter then
+        return
+    end
+    if not (rootPart and rootPart.Parent and humanoid and humanoid.Parent) then
+        return
+    end
+
+    local oldCF = rootPart.CFrame
+    local hideCF = oldCF * CFrame.new(0, -200000, 0)
+
+    rootPart.CFrame = hideCF
+    camHiddenPos = hideCF.Position
+    camShift = oldCF.Position - hideCF.Position
+
+    RunService.RenderStepped:Wait()
+
+    pcall(function()
+        -- keep any rotation applied meanwhile (shift lock turns the character)
+        local currentRot = rootPart.CFrame.Rotation
+        rootPart.CFrame = CFrame.new(oldCF.Position) * currentRot
+    end)
+end))
+
+-- Right after Roblox updates the camera, move it back to the real position.
+-- Only applied if the root really is at the hidden spot at that moment.
+RunService:BindToRenderStep("InvisCamFix", Enum.RenderPriority.Camera.Value + 1, function()
+    local cam = workspace.CurrentCamera
+    if not (cam and camShift and camHiddenPos and rootPart and rootPart.Parent) then return end
+    if (rootPart.Position - camHiddenPos).Magnitude > 50 then return end
+    cam.CFrame = cam.CFrame + camShift
+    cam.Focus = cam.Focus + camShift
+end)
+track({ Disconnect = function()
+    pcall(function() RunService:UnbindFromRenderStep("InvisCamFix") end)
+end })
+
+--========================= RESPAWN ============================
+track(player.CharacterAdded:Connect(function()
+    stopSpam(true)
+    setEnabled(false)
+    setStrengthen(false)
+    task.wait(1)
+    updateCharacterData()
+end))
+
+--=========================== INIT =============================
+updateCharacterData()
+invisRow.setVisual(false, false)
+strongRow.setVisual(false, false)
+updateSpamVisuals()
+refreshAccent(false)
+
+_G.a = conns
