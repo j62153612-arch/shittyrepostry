@@ -1,0 +1,5923 @@
+local SPAWN_DISTANCE = 10        -- فاصله مدل از شما (هرچه عدد بزرگتر باشد، دورتر اسپاون می‌شود)
+local SPAWN_HEIGHT_OFFSET = 2.5  -- تنظیم ارتفاع (2.5 معمولاً هم‌سطح پای پلیر است)
+
+local LIGHT_ALL_PARTS = false
+local GLOBAL_LIGHT_RANGE = 20      -- شعاع نور
+local GLOBAL_LIGHT_BRIGHTNESS = 0.011   -- روشنایی
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Player = Players.LocalPlayer
+
+-- پیدا کردن سریع ابزار F3X
+local tool
+for _, v in ipairs(Player:GetDescendants()) do if v.Name == "SyncAPI" then tool = v.Parent break end end
+if not tool then for _, v in ipairs(ReplicatedStorage:GetDescendants()) do if v.Name == "SyncAPI" then tool = v.Parent break end end end
+if not tool or not tool:FindFirstChild("SyncAPI") then warn("خطا: ابزار F3X پیدا نشد!") return end
+
+local remote = tool.SyncAPI.ServerEndpoint
+
+-- ردیاب سبک برای اطمینان از پایان کار سرور
+local ActiveSyncs = 0
+
+local function FireMassiveSync(action, dataArray, extraArg)
+    if not dataArray or #dataArray == 0 then return end
+    ActiveSyncs = ActiveSyncs + 1
+    task.spawn(function()
+        pcall(function()
+            if extraArg ~= nil then
+                remote:InvokeServer(action, dataArray, extraArg)
+            else
+                remote:InvokeServer(action, dataArray)
+            end
+        end)
+        ActiveSyncs = ActiveSyncs - 1
+    end)
+end
+
+local function safeNum(val, default) return tonumber(val) or default or 0 end
+
+-- =========================================================
+-- [ توابع کمکی خواندن مقادیر از متن اکسپورت ] --
+-- %f[%a] باعث می‌شود مثلاً "Color:" داخل "LightColor:" یا "FireColor:" پیدا نشود
+-- =========================================================
+local function getNumber(block, key)
+    local s = block:match("%f[%a]" .. key .. ":%s*(%-?[%d%.]+)")
+    return tonumber(s)
+end
+
+local function getBoolean(block, key)
+    local s = block:match("%f[%a]" .. key .. ":%s*(%a+)")
+    if not s then return nil end
+    return s:lower() == "true"
+end
+
+-- رنگ‌های جدید اکسپورتر به صورت 0 تا 1 ذخیره شده‌اند
+local function getColor3(block, key)
+    local r, g, b = block:match("%f[%a]" .. key .. ":%s*(%-?[%d%.]+)%s*,%s*(%-?[%d%.]+)%s*,%s*(%-?[%d%.]+)")
+    local rn, gn, bn = tonumber(r), tonumber(g), tonumber(b)
+    if rn and gn and bn then
+        return Color3.new(math.clamp(rn, 0, 1), math.clamp(gn, 0, 1), math.clamp(bn, 0, 1))
+    end
+    return nil
+end
+
+-- نگاشت Shape خروجی اکسپورتر به نام‌های F3X
+local SHAPE_MAP = {
+    Normal = "Normal", Wedge = "Wedge", Corner = "Corner", Truss = "Truss",
+    Cylinder = "Cylinder", Ball = "Ball", Sphere = "Ball",
+    Seat = "Seat", VehicleSeat = "Vehicle Seat", Spawn = "Spawn",
+}
+
+---------------------------------------------------------
+-- [کدهای خام خود را (خروجی اکسپورتر، همه صفحه‌ها) در کادر زیر کپی کن] --
+---------------------------------------------------------
+local RawData = [==[
+Part 2:
+Position: (18.898, 3.865, -18.184)
+Rotation: (-1.047, -170.011, -0.002)
+Size: (0.800, 0.800, 0.800)
+Shape: Normal
+ClassName: Part
+Color: 1.000, 0.690, 0.000
+Material: SmoothPlastic
+Transparency: 0.000
+Decal.Front = 129748355
+Decal.Back = 129748355
+Decal.Left = 129748355
+Decal.Right = 129748355
+Decal.Top = 129748355
+Decal.Bottom = 129748355
+
+Part 3:
+Position: (15.912, 6.115, -20.799)
+Rotation: (-3.862, 125.503, -3.133)
+Size: (0.050, 0.050, 0.050)
+Shape: Normal
+ClassName: Part
+Color: 0.706, 0.502, 1.000
+Material: Neon
+Transparency: 2.000
+MeshType: Wedge
+MeshScale: 2.000, 80.000, 80.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 4:
+Position: (13.461, 3.481, -18.903)
+Rotation: (-40.283, -76.045, -177.877)
+Size: (0.275, 0.217, 0.295)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Glass
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 0.750, 0.250
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 5:
+Position: (14.648, 2.541, -19.169)
+Rotation: (-52.666, 107.455, 87.330)
+Size: (1.625, 0.200, 0.296)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 6:
+Position: (12.821, 3.979, -18.742)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.304, 0.267)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.495, 1.000, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 7:
+Position: (13.024, 4.032, -18.799)
+Rotation: (49.668, -72.753, 2.506)
+Size: (0.275, 0.228, 0.213)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.570, 0.125, 0.375
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 8:
+Position: (11.053, 5.978, -18.318)
+Rotation: (-49.668, 107.247, 177.494)
+Size: (0.260, 0.578, 0.219)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.300, 1.000, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 9:
+Position: (46.632, 63.534, 22.196)
+Rotation: (30.705, 0.339, 84.641)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 10:
+Position: (46.632, 63.534, 22.196)
+Rotation: (-15.009, -69.236, -55.570)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 11:
+Position: (45.399, 75.491, 20.153)
+Rotation: (1.731, 104.921, -0.881)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 12:
+Position: (45.399, 75.491, 20.153)
+Rotation: (47.771, -22.418, 43.615)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 13:
+Position: (43.638, 86.131, 18.395)
+Rotation: (-6.018, -161.699, -116.171)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 14:
+Position: (43.638, 86.131, 18.395)
+Rotation: (-19.988, 90.939, 51.313)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 15:
+Position: (41.540, 95.555, 16.896)
+Rotation: (-9.680, 174.308, 47.139)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 16:
+Position: (41.540, 95.555, 16.896)
+Rotation: (1.686, -59.082, -162.242)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 17:
+Position: (39.250, 103.876, 15.626)
+Rotation: (-69.376, -110.358, 80.514)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 18:
+Position: (39.250, 103.876, 15.626)
+Rotation: (29.635, 122.609, 69.882)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 19:
+Position: (36.879, 111.208, 14.561)
+Rotation: (15.205, -43.785, -92.429)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 20:
+Position: (36.879, 111.208, 14.561)
+Rotation: (-26.843, 174.837, -109.541)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 21:
+Position: (34.503, 117.655, 13.668)
+Rotation: (3.300, -12.969, 159.209)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 22:
+Position: (34.503, 117.655, 13.668)
+Rotation: (44.922, -144.792, -136.230)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 23:
+Position: (32.179, 123.335, 12.925)
+Rotation: (-25.419, -7.162, -158.849)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 24:
+Position: (32.179, 123.335, 12.925)
+Rotation: (18.220, -43.656, -95.360)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 25:
+Position: (29.943, 128.332, 12.307)
+Rotation: (18.603, -79.140, 87.722)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 26:
+Position: (29.943, 128.332, 12.307)
+Rotation: (-17.665, 120.842, -148.596)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 27:
+Position: (27.820, 132.729, 11.795)
+Rotation: (33.055, 33.851, 46.832)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 28:
+Position: (27.820, 132.729, 11.795)
+Rotation: (-23.043, 15.907, -40.665)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 29:
+Position: (25.826, 136.602, 11.371)
+Rotation: (8.769, -23.844, -68.873)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 30:
+Position: (25.826, 136.602, 11.371)
+Rotation: (61.903, 83.161, -71.561)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 31:
+Position: (23.964, 140.018, 11.021)
+Rotation: (20.202, -140.198, -139.098)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 32:
+Position: (23.964, 140.018, 11.021)
+Rotation: (-16.679, -2.142, -85.956)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 33:
+Position: (22.236, 143.033, 10.730)
+Rotation: (35.749, 134.332, 79.759)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 34:
+Position: (22.236, 143.033, 10.730)
+Rotation: (-29.745, -133.514, -146.747)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 35:
+Position: (20.644, 145.697, 10.492)
+Rotation: (-17.864, 11.638, 72.612)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 36:
+Position: (20.644, 145.697, 10.492)
+Rotation: (-65.596, 39.896, -168.644)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 37:
+Position: (19.179, 148.056, 10.293)
+Rotation: (-53.801, 71.788, -11.572)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 38:
+Position: (19.179, 148.056, 10.293)
+Rotation: (-3.426, -170.721, 77.674)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 39:
+Position: (17.836, 150.141, 10.130)
+Rotation: (23.195, 167.224, -157.831)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 40:
+Position: (17.836, 150.141, 10.130)
+Rotation: (17.626, 42.649, -135.484)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 41:
+Position: (16.608, 151.998, 9.994)
+Rotation: (38.967, -172.169, -126.715)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 42:
+Position: (16.608, 151.998, 9.994)
+Rotation: (-44.223, 157.731, -41.220)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 43:
+Position: (15.488, 153.646, 9.882)
+Rotation: (-48.031, -145.189, -114.774)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 44:
+Position: (15.488, 153.646, 9.882)
+Rotation: (-15.203, -166.729, 81.986)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 45:
+Position: (14.468, 155.111, 9.790)
+Rotation: (-42.142, 81.131, -79.627)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 46:
+Position: (14.468, 155.111, 9.790)
+Rotation: (75.688, -28.979, -48.670)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 47:
+Position: (13.540, 156.416, 9.714)
+Rotation: (55.963, 35.999, 90.089)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 48:
+Position: (13.540, 156.416, 9.714)
+Rotation: (-39.745, 83.139, 13.356)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 49:
+Position: (12.697, 157.579, 9.650)
+Rotation: (-40.770, 132.605, -170.377)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 50:
+Position: (12.697, 157.579, 9.650)
+Rotation: (34.502, -163.769, 163.597)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 51:
+Position: (11.932, 158.617, 9.597)
+Rotation: (39.085, 168.273, -74.301)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 52:
+Position: (11.932, 158.617, 9.597)
+Rotation: (-56.842, 121.474, -41.339)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 53:
+Position: (11.239, 159.544, 9.553)
+Rotation: (-23.088, 11.532, 116.304)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 54:
+Position: (11.239, 159.544, 9.553)
+Rotation: (-29.952, 172.699, 174.579)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 55:
+Position: (10.610, 160.373, 9.517)
+Rotation: (12.133, -107.538, 0.007)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 56:
+Position: (10.610, 160.373, 9.517)
+Rotation: (-14.478, 0.204, 117.023)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 57:
+Position: (10.041, 161.115, 9.486)
+Rotation: (-2.951, -149.345, -102.643)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 58:
+Position: (10.041, 161.115, 9.486)
+Rotation: (20.380, 155.217, 117.778)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 59:
+Position: (9.526, 161.779, 9.461)
+Rotation: (-19.442, 54.382, 72.674)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 60:
+Position: (9.526, 161.779, 9.461)
+Rotation: (-12.288, -5.270, 126.870)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 61:
+Position: (9.060, 162.375, 9.439)
+Rotation: (36.957, 36.858, 143.502)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 62:
+Position: (9.060, 162.375, 9.439)
+Rotation: (-32.139, 90.472, -75.871)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 63:
+Position: (8.638, 162.909, 9.423)
+Rotation: (60.450, -85.613, -86.828)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 64:
+Position: (8.638, 162.909, 9.423)
+Rotation: (17.930, -48.552, -128.124)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 65:
+Position: (8.256, 163.388, 9.408)
+Rotation: (-44.155, 167.906, -104.046)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 66:
+Position: (8.256, 163.388, 9.408)
+Rotation: (-25.850, 44.358, 35.160)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 67:
+Position: (7.912, 163.819, 9.395)
+Rotation: (-1.051, -162.371, 44.435)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 68:
+Position: (7.912, 163.819, 9.395)
+Rotation: (-58.026, -31.697, -112.386)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 69:
+Position: (7.600, 164.206, 9.383)
+Rotation: (-9.455, -14.355, 128.364)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 70:
+Position: (7.600, 164.206, 9.383)
+Rotation: (1.864, -116.651, 31.771)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 71:
+Position: (7.318, 164.553, 9.375)
+Rotation: (12.947, 34.317, 99.252)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 72:
+Position: (7.318, 164.553, 9.375)
+Rotation: (39.626, 117.783, 141.974)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 73:
+Position: (7.064, 164.866, 9.367)
+Rotation: (22.403, 3.602, -43.281)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 74:
+Position: (7.064, 164.866, 9.367)
+Rotation: (4.399, 39.062, 37.427)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 75:
+Position: (6.834, 165.147, 9.361)
+Rotation: (-4.118, 154.162, -106.701)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 76:
+Position: (6.834, 165.147, 9.361)
+Rotation: (43.606, 64.449, 42.808)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 77:
+Position: (6.627, 165.400, 9.354)
+Rotation: (55.960, -141.535, -125.082)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 78:
+Position: (6.627, 165.400, 9.354)
+Rotation: (67.836, -68.393, -65.078)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 79:
+Position: (6.439, 165.628, 9.350)
+Rotation: (26.914, 107.690, 108.334)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 80:
+Position: (6.439, 165.628, 9.350)
+Rotation: (-45.588, 129.257, -38.636)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 81:
+Position: (6.270, 165.833, 9.347)
+Rotation: (-53.115, 76.536, -65.504)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 82:
+Position: (6.270, 165.833, 9.347)
+Rotation: (-44.264, 145.875, 157.667)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 83:
+Position: (6.117, 166.018, 9.342)
+Rotation: (-27.718, 93.057, 165.339)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 84:
+Position: (6.117, 166.018, 9.342)
+Rotation: (-16.894, 178.864, 176.568)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 85:
+Position: (5.979, 166.184, 9.340)
+Rotation: (28.670, -28.533, -7.625)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 86:
+Position: (5.979, 166.184, 9.340)
+Rotation: (-65.720, -136.079, -8.510)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 87:
+Position: (5.854, 166.334, 9.336)
+Rotation: (-2.788, 173.139, -145.640)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 88:
+Position: (5.854, 166.334, 9.336)
+Rotation: (3.165, 14.901, -134.614)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 89:
+Position: (5.741, 166.469, 9.334)
+Rotation: (-42.681, -55.246, -75.501)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 90:
+Position: (5.741, 166.469, 9.334)
+Rotation: (52.149, 146.358, 118.294)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 91:
+Position: (5.640, 166.591, 9.333)
+Rotation: (-69.189, 154.929, -54.877)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 92:
+Position: (5.640, 166.591, 9.333)
+Rotation: (30.710, -144.152, -167.282)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 93:
+Position: (5.548, 166.700, 9.330)
+Rotation: (-3.742, 60.614, 127.727)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 94:
+Position: (5.548, 166.700, 9.330)
+Rotation: (30.909, -137.789, -151.713)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 95:
+Position: (5.465, 166.798, 9.329)
+Rotation: (41.857, -120.179, 102.913)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 96:
+Position: (5.465, 166.798, 9.329)
+Rotation: (4.954, 10.855, -79.080)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 97:
+Position: (5.390, 166.887, 9.327)
+Rotation: (21.228, 160.294, 124.770)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 98:
+Position: (5.390, 166.887, 9.327)
+Rotation: (12.193, -119.924, -124.198)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 99:
+Position: (5.323, 166.967, 9.326)
+Rotation: (-41.305, -123.392, -32.473)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 100:
+Position: (5.323, 166.967, 9.326)
+Rotation: (-64.564, 143.287, 39.546)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 101:
+Position: (5.262, 167.038, 9.326)
+Rotation: (29.784, -52.496, 59.263)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 102:
+Position: (5.262, 167.038, 9.326)
+Rotation: (1.941, 78.364, -165.007)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 103:
+Position: (5.207, 167.102, 9.325)
+Rotation: (29.620, -43.434, 86.214)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 104:
+Position: (5.207, 167.102, 9.325)
+Rotation: (-23.374, -73.543, 116.620)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 105:
+Position: (5.157, 167.160, 9.325)
+Rotation: (-25.295, 93.587, 138.353)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 106:
+Position: (5.157, 167.160, 9.325)
+Rotation: (19.694, -2.743, -170.194)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 107:
+Position: (5.112, 167.212, 9.323)
+Rotation: (65.962, 44.377, 147.856)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 108:
+Position: (5.112, 167.212, 9.323)
+Rotation: (-78.027, 124.525, -174.606)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 109:
+Position: (5.072, 167.258, 9.322)
+Rotation: (-13.009, 13.707, 117.139)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 110:
+Position: (5.072, 167.258, 9.322)
+Rotation: (27.409, -69.090, -167.440)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 111:
+Position: (5.035, 167.300, 9.322)
+Rotation: (17.127, -156.672, -87.856)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 112:
+Position: (5.035, 167.300, 9.322)
+Rotation: (-60.934, 52.836, 61.270)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 113:
+Position: (5.002, 167.337, 9.321)
+Rotation: (26.317, 78.711, -119.000)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 114:
+Position: (5.002, 167.337, 9.321)
+Rotation: (-48.095, -88.964, -63.158)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 115:
+Position: (4.973, 167.370, 9.321)
+Rotation: (-17.163, 134.768, 109.341)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 116:
+Position: (4.973, 167.370, 9.321)
+Rotation: (-29.354, 34.988, -27.658)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 117:
+Position: (4.946, 167.400, 9.321)
+Rotation: (31.488, 20.933, -150.296)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 118:
+Position: (4.946, 167.400, 9.321)
+Rotation: (35.275, 60.536, 177.950)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 119:
+Position: (4.922, 167.426, 9.320)
+Rotation: (-44.382, 114.498, -77.185)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 120:
+Position: (4.922, 167.426, 9.320)
+Rotation: (-24.891, 98.586, -85.701)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 121:
+Position: (4.900, 167.449, 9.320)
+Rotation: (39.361, -78.150, -112.455)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 122:
+Position: (4.900, 167.449, 9.320)
+Rotation: (-25.895, 20.520, 178.775)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 123:
+Position: (4.880, 167.470, 9.320)
+Rotation: (12.396, -146.330, -68.277)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 124:
+Position: (4.880, 167.470, 9.320)
+Rotation: (3.645, -54.280, -138.844)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 125:
+Position: (4.862, 167.489, 9.319)
+Rotation: (46.363, 27.878, 178.591)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 126:
+Position: (4.862, 167.489, 9.319)
+Rotation: (-20.963, 158.217, 74.602)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 127:
+Position: (4.846, 167.505, 9.319)
+Rotation: (-64.548, 35.907, -163.039)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 128:
+Position: (4.846, 167.505, 9.319)
+Rotation: (-38.889, -149.318, -161.314)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 129:
+Position: (4.831, 167.519, 9.319)
+Rotation: (-79.205, -26.227, 127.174)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 130:
+Position: (4.831, 167.519, 9.319)
+Rotation: (41.295, 58.741, 105.528)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 131:
+Position: (4.818, 167.531, 9.319)
+Rotation: (-16.813, -146.527, 161.014)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 132:
+Position: (4.818, 167.531, 9.319)
+Rotation: (9.875, 55.179, 76.305)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 133:
+Position: (4.807, 167.542, 9.319)
+Rotation: (-28.772, 43.151, 158.056)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 134:
+Position: (4.807, 167.542, 9.319)
+Rotation: (-11.099, 56.975, -172.153)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 135:
+Position: (4.796, 167.552, 9.319)
+Rotation: (8.007, 45.118, -16.272)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 136:
+Position: (4.796, 167.552, 9.319)
+Rotation: (-59.597, -6.778, -174.404)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 137:
+Position: (4.786, 167.560, 9.319)
+Rotation: (-81.104, 179.508, -130.889)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 138:
+Position: (4.786, 167.560, 9.319)
+Rotation: (54.378, 157.178, 125.444)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 139:
+Position: (4.778, 167.567, 9.318)
+Rotation: (-8.340, -105.616, -71.726)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 140:
+Position: (4.778, 167.567, 9.318)
+Rotation: (30.497, 76.309, 17.281)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 141:
+Position: (4.770, 167.574, 9.318)
+Rotation: (-31.127, 16.997, -42.695)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 142:
+Position: (4.770, 167.574, 9.318)
+Rotation: (-2.957, -143.847, -110.855)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 143:
+Position: (4.763, 167.579, 9.318)
+Rotation: (-36.874, -133.642, 178.175)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 144:
+Position: (4.763, 167.579, 9.318)
+Rotation: (-9.231, -149.633, -131.661)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 145:
+Position: (4.756, 167.584, 9.318)
+Rotation: (64.906, -84.268, -95.342)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 146:
+Position: (4.756, 167.584, 9.318)
+Rotation: (79.262, -123.117, 108.810)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 147:
+Position: (4.750, 167.587, 9.318)
+Rotation: (2.107, 16.616, 89.734)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 148:
+Position: (4.750, 167.587, 9.318)
+Rotation: (23.046, 44.498, 176.288)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 149:
+Position: (4.745, 167.591, 9.318)
+Rotation: (7.841, -12.399, -7.948)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 150:
+Position: (4.745, 167.591, 9.318)
+Rotation: (55.954, 39.131, 96.712)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 151:
+Position: (4.741, 167.594, 9.318)
+Rotation: (67.622, -76.023, 28.674)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 152:
+Position: (4.741, 167.594, 9.318)
+Rotation: (2.716, 65.126, -87.948)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 153:
+Position: (4.736, 167.596, 9.318)
+Rotation: (-31.515, -57.616, 29.957)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 154:
+Position: (4.736, 167.596, 9.318)
+Rotation: (17.660, 87.964, 173.231)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 155:
+Position: (4.732, 167.598, 9.318)
+Rotation: (16.667, 176.383, -17.283)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 156:
+Position: (4.732, 167.598, 9.318)
+Rotation: (-23.987, 85.753, -88.585)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 157:
+Position: (4.729, 167.600, 9.318)
+Rotation: (47.778, -72.692, -84.673)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 158:
+Position: (4.729, 167.600, 9.318)
+Rotation: (17.320, 6.227, 124.857)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 159:
+Position: (4.726, 167.602, 9.318)
+Rotation: (25.370, 146.612, -69.088)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 160:
+Position: (4.726, 167.602, 9.318)
+Rotation: (13.892, -151.119, 152.492)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 161:
+Position: (4.723, 167.603, 9.318)
+Rotation: (-17.254, -73.285, -49.785)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 162:
+Position: (4.723, 167.603, 9.318)
+Rotation: (-4.159, 69.019, 155.701)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 163:
+Position: (4.721, 167.605, 9.318)
+Rotation: (15.946, -68.735, 26.399)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 164:
+Position: (4.721, 167.605, 9.318)
+Rotation: (15.195, 94.181, -163.154)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 165:
+Position: (4.718, 167.606, 9.318)
+Rotation: (-36.301, -161.790, 157.520)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 166:
+Position: (4.718, 167.606, 9.318)
+Rotation: (10.708, 29.224, -68.023)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 167:
+Position: (4.716, 167.607, 9.318)
+Rotation: (72.554, 86.364, -176.583)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 168:
+Position: (4.716, 167.607, 9.318)
+Rotation: (67.607, -115.064, -175.031)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 169:
+Position: (4.714, 167.608, 9.318)
+Rotation: (-41.965, -28.636, -85.996)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 170:
+Position: (4.714, 167.608, 9.318)
+Rotation: (48.406, -90.667, -105.165)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 171:
+Position: (3.230, 167.614, 11.367)
+Rotation: (-32.285, -162.132, -80.652)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 172:
+Position: (3.230, 167.614, 11.367)
+Rotation: (57.265, 158.581, -100.617)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 173:
+Position: (2.278, 167.613, 12.344)
+Rotation: (59.680, -126.027, 5.235)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 174:
+Position: (2.278, 167.613, 12.344)
+Rotation: (72.683, 88.972, -141.941)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 175:
+Position: (1.802, 167.613, 12.738)
+Rotation: (32.999, 177.867, -31.023)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 176:
+Position: (1.802, 167.613, 12.738)
+Rotation: (-47.226, 151.934, 103.134)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 177:
+Position: (1.580, 167.614, 12.903)
+Rotation: (15.399, -23.386, 60.925)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 178:
+Position: (1.580, 167.614, 12.903)
+Rotation: (-1.469, -76.307, -173.095)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 179:
+Position: (1.597, 167.615, 12.900)
+Rotation: (38.412, -33.623, -43.915)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 180:
+Position: (1.597, 167.615, 12.900)
+Rotation: (-13.623, 111.972, 164.688)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 181:
+Position: (1.796, 167.617, 12.764)
+Rotation: (25.806, 112.926, 144.565)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 182:
+Position: (1.796, 167.617, 12.764)
+Rotation: (-55.469, 26.142, -16.249)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 183:
+Position: (1.909, 167.619, 12.674)
+Rotation: (-24.184, 32.088, -5.738)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 184:
+Position: (-3.299, 111.617, 5.219)
+Rotation: (-32.810, -90.629, 96.957)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 185:
+Position: (-2.752, 109.704, 5.413)
+Rotation: (8.290, 58.992, -128.819)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 186:
+Position: (-2.205, 107.790, 5.608)
+Rotation: (18.479, -136.881, 37.661)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 187:
+Position: (-1.658, 105.876, 5.802)
+Rotation: (18.950, -61.849, -103.606)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 188:
+Position: (-1.110, 103.962, 5.996)
+Rotation: (0.115, -142.567, 133.005)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 189:
+Position: (-0.563, 102.048, 6.190)
+Rotation: (-40.983, 105.282, 168.075)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 190:
+Position: (-0.016, 100.134, 6.384)
+Rotation: (58.521, -17.909, 58.500)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 191:
+Position: (0.531, 98.220, 6.578)
+Rotation: (-6.180, -82.735, 111.913)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 192:
+Position: (1.078, 96.306, 6.773)
+Rotation: (61.705, -20.221, -2.653)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 193:
+Position: (1.626, 94.393, 6.967)
+Rotation: (-40.182, -30.888, 167.273)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 194:
+Position: (2.173, 92.479, 7.161)
+Rotation: (16.979, -128.301, 1.468)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 195:
+Position: (2.720, 90.565, 7.355)
+Rotation: (47.870, 14.165, -34.827)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 196:
+Position: (3.268, 88.651, 7.549)
+Rotation: (32.833, -12.806, -21.573)
+Size: (1.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.443, 1.000, 0.443
+Material: Neon
+Transparency: 1.000
+CanCollide: False
+MeshType: Sphere
+MeshScale: 16.344, 16.344, -175.844
+MeshOffset: 0.000, 0.000, 0.000
+Stud.Top: True
+
+Part 197:
+Position: (16.097, 1.698, -19.574)
+Rotation: (-33.788, -75.747, -178.055)
+Size: (0.275, 0.235, 1.669)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.050, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 198:
+Position: (13.722, 3.800, -18.984)
+Rotation: (-40.283, -76.045, 2.123)
+Size: (0.275, 0.200, 0.287)
+Shape: Normal
+ClassName: Part
+Color: 0.973, 0.973, 0.973
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.560, 1.000, 0.900
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 199:
+Position: (10.704, 6.497, -18.236)
+Rotation: (49.668, -72.753, 2.506)
+Size: (0.270, 0.219, 0.234)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 0.500, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 200:
+Position: (14.689, 3.207, -19.232)
+Rotation: (-26.934, 106.150, 178.188)
+Size: (0.200, 0.217, 0.200)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.560, 0.200, 0.600
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 201:
+Position: (12.402, 4.596, -18.646)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.355, 0.283)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.400, 0.560, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 202:
+Position: (12.478, 3.886, -18.612)
+Rotation: (-4.696, 105.467, 88.375)
+Size: (0.422, 0.200, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 203:
+Position: (17.225, 1.159, -19.867)
+Rotation: (-40.283, -76.045, -177.877)
+Size: (0.275, 0.446, 0.496)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.400, 1.000, 0.900
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 204:
+Position: (12.912, 4.990, -18.764)
+Rotation: (85.034, 86.403, 71.003)
+Size: (0.496, 0.200, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 205:
+Position: (13.168, 4.038, -18.839)
+Rotation: (-49.668, 107.247, 177.494)
+Size: (0.275, 0.709, 0.474)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.500, 1.050, 0.800
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 206:
+Position: (16.354, 1.734, -19.645)
+Rotation: (56.165, -72.261, 2.903)
+Size: (0.275, 1.460, 0.422)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.000, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 207:
+Position: (12.707, 4.517, -18.727)
+Rotation: (49.668, -72.753, 2.506)
+Size: (0.275, 0.200, 0.303)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 0.500, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 208:
+Position: (13.029, 4.431, -18.812)
+Rotation: (-49.670, 107.247, 87.495)
+Size: (0.698, 0.275, 0.372)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Cylinder
+MeshScale: 1.000, 0.455, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 209:
+Position: (13.634, 3.815, -18.959)
+Rotation: (64.650, -71.253, -176.224)
+Size: (0.275, 0.221, 0.408)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.550, 1.050, 0.800
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 210:
+Position: (12.877, 3.325, -18.771)
+Rotation: (-79.576, 114.155, -98.971)
+Size: (0.405, 0.200, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 211:
+Position: (11.690, 5.457, -18.476)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.261, 0.245)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.375, 1.050, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 212:
+Position: (12.978, 4.097, -18.789)
+Rotation: (49.668, -72.753, 2.506)
+Size: (0.275, 0.200, 0.303)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Glass
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.525, 0.500, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 213:
+Position: (12.550, 4.651, -18.688)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.567, 0.311)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.050, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 214:
+Position: (11.734, 6.138, -19.653)
+Rotation: (-4.426, -94.870, 3.341)
+Size: (0.050, 0.050, 0.050)
+Shape: Normal
+ClassName: Part
+Color: 0.706, 0.502, 1.000
+Material: Neon
+Transparency: 2.000
+MeshType: Wedge
+MeshScale: 2.000, 80.000, 80.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 215:
+Position: (15.189, 2.586, -19.351)
+Rotation: (52.917, -72.522, 2.686)
+Size: (0.275, 1.657, 0.422)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.000, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 216:
+Position: (14.790, 2.656, -19.243)
+Rotation: (-37.037, -75.887, -177.975)
+Size: (0.275, 0.235, 1.669)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.050, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 217:
+Position: (13.029, 4.431, -18.812)
+Rotation: (-49.670, 107.247, 87.495)
+Size: (0.698, 0.275, 0.534)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Glass
+Transparency: 0.000
+MeshType: Cylinder
+MeshScale: 1.000, 0.452, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 218:
+Position: (13.229, 3.877, -18.852)
+Rotation: (49.668, -72.753, -177.494)
+Size: (0.275, 0.207, 0.303)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Glass
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.525, 0.500, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 219:
+Position: (14.632, 2.539, -19.229)
+Rotation: (-52.666, 107.455, -92.670)
+Size: (1.625, 0.200, 0.296)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 220:
+Position: (12.990, 3.496, -18.775)
+Rotation: (-49.668, 107.247, 177.494)
+Size: (0.275, 0.316, 0.303)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Glass
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 1.000, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 221:
+Position: (10.955, 6.258, -18.297)
+Rotation: (49.668, -72.753, 2.506)
+Size: (0.275, 0.578, 0.234)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.500, 1.050, 0.400
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 222:
+Position: (17.097, 1.082, -19.861)
+Rotation: (-85.965, -98.262, 113.646)
+Size: (0.940, 0.200, 0.285)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 223:
+Position: (13.045, 3.782, -18.798)
+Rotation: (-49.668, 107.247, 177.494)
+Size: (0.275, 0.311, 0.267)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.495, 1.000, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 224:
+Position: (13.118, 3.856, -18.819)
+Rotation: (-49.668, 107.247, 177.494)
+Size: (0.275, 0.252, 0.213)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.570, 0.125, 0.375
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 225:
+Position: (14.243, 5.551, -18.435)
+Rotation: (0.438, 166.317, 2.070)
+Size: (1.200, 0.800, 1.400)
+Shape: Normal
+ClassName: Part
+Color: 0.635, 0.631, 0.643
+Material: Plastic
+Transparency: 0.000
+MeshType: FileMesh
+MeshId: 71483350
+MeshTextureId: 607698990
+MeshScale: 0.660, 0.660, 0.660
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 226:
+Position: (13.085, 3.613, -18.804)
+Rotation: (49.668, -72.753, 2.506)
+Size: (0.275, 0.316, 0.310)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Glass
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 1.000, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 227:
+Position: (12.891, 3.990, -18.762)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.200, 0.303)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Glass
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.525, 0.500, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 228:
+Position: (10.707, 6.281, -18.229)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.260, 0.375, 0.219)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.300, 1.000, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 229:
+Position: (13.186, 3.617, -18.832)
+Rotation: (-49.668, 107.247, 177.494)
+Size: (0.275, 0.224, 0.375)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Glass
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.500, 0.700, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 230:
+Position: (17.559, 1.124, -19.924)
+Rotation: (-41.283, -76.088, -87.847)
+Size: (0.210, 0.200, 0.285)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 231:
+Position: (13.440, 4.116, -18.916)
+Rotation: (-4.691, 105.460, 178.377)
+Size: (0.275, 0.331, 0.412)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.500, 1.050, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 232:
+Position: (11.901, 5.401, -18.532)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 1.735, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.804, 0.804, 0.804
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.350, 1.050, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 233:
+Position: (12.990, 4.062, -18.791)
+Rotation: (49.668, -72.753, 2.506)
+Size: (0.275, 0.200, 0.213)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.550, 0.250, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 234:
+Position: (15.972, 1.550, -19.568)
+Rotation: (-55.664, 107.708, -92.879)
+Size: (1.785, 0.200, 0.301)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 235:
+Position: (12.708, 3.912, -18.708)
+Rotation: (-4.691, 105.460, -1.623)
+Size: (0.275, 0.403, 0.352)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.350, 1.000, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 236:
+Position: (15.017, 2.847, -19.311)
+Rotation: (52.917, -72.522, 2.686)
+Size: (0.275, 0.533, 0.214)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.450, 0.900, 0.100
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 237:
+Position: (13.954, 3.135, -19.061)
+Rotation: (-28.433, 106.208, -91.841)
+Size: (0.288, 0.200, 0.278)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 238:
+Position: (15.288, 2.726, -19.382)
+Rotation: (52.917, -72.522, 2.686)
+Size: (0.275, 1.657, 0.359)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.000, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 239:
+Position: (12.620, 4.410, -18.700)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.200, 0.303)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 0.500, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 240:
+Position: (13.339, 3.243, -18.830)
+Rotation: (-79.576, 114.155, 81.029)
+Size: (0.423, 0.200, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 241:
+Position: (13.346, 4.813, -18.878)
+Rotation: (49.671, -72.762, -87.504)
+Size: (0.643, 0.200, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 242:
+Position: (13.590, 3.357, -18.935)
+Rotation: (-19.694, 105.912, -1.719)
+Size: (0.275, 0.277, 0.227)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.350, 0.300, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 243:
+Position: (10.692, 6.251, -18.225)
+Rotation: (-16.691, 105.818, -1.693)
+Size: (0.200, 0.469, 0.221)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.500, 1.000, 0.250
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 244:
+Position: (12.986, 4.089, -18.791)
+Rotation: (-49.668, 107.247, 177.494)
+Size: (0.275, 0.207, 0.303)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 0.500, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 245:
+Position: (13.199, 4.641, -18.865)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.514, 0.622)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.050, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 246:
+Position: (13.578, 3.459, -18.935)
+Rotation: (-4.691, 105.460, -1.623)
+Size: (0.275, 0.484, 0.227)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.350, 0.300, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 247:
+Position: (13.322, 3.241, -18.889)
+Rotation: (-79.576, 114.155, -98.971)
+Size: (0.423, 0.200, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 248:
+Position: (13.781, 3.707, -18.998)
+Rotation: (-85.032, -93.634, -160.970)
+Size: (0.275, 0.221, 0.418)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.550, 1.050, 0.900
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 249:
+Position: (13.861, 3.756, -19.021)
+Rotation: (49.668, -72.753, 2.506)
+Size: (0.275, 0.480, 0.214)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.450, 1.000, 0.100
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 250:
+Position: (14.109, 3.466, -19.080)
+Rotation: (26.934, -73.850, 1.812)
+Size: (0.275, 0.330, 0.214)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.450, 1.000, 0.100
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 251:
+Position: (12.332, 4.862, -18.633)
+Rotation: (49.668, -72.753, -177.494)
+Size: (0.275, 0.244, 0.416)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 0.560, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 252:
+Position: (14.270, 4.975, -18.630)
+Rotation: (0.438, 166.317, 2.070)
+Size: (2.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+MeshType: Head
+MeshScale: 1.250, 1.250, 1.250
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 253:
+Position: (11.237, 5.776, -18.361)
+Rotation: (-59.658, 108.091, -3.198)
+Size: (0.275, 0.203, 0.234)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.500, 1.050, 0.400
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 254:
+Position: (13.255, 3.518, -18.847)
+Rotation: (-40.283, -76.045, -177.877)
+Size: (0.275, 0.233, 0.295)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Glass
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 1.000, 0.250
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 255:
+Position: (13.802, 3.675, -19.001)
+Rotation: (49.668, -72.753, 2.506)
+Size: (0.275, 0.488, 0.418)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.000, 0.900
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 256:
+Position: (13.194, 3.883, -18.841)
+Rotation: (49.668, -72.753, -177.494)
+Size: (0.275, 0.207, 0.213)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.550, 0.250, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 257:
+Position: (13.621, 3.250, -18.908)
+Rotation: (-70.234, -79.191, -85.198)
+Size: (0.293, 0.200, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 258:
+Position: (13.960, 3.865, -19.051)
+Rotation: (43.178, -73.149, 2.214)
+Size: (0.275, 0.488, 0.359)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.000, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 259:
+Position: (13.029, 4.431, -18.812)
+Rotation: (-49.670, 107.247, 87.495)
+Size: (0.698, 0.275, 0.534)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Cylinder
+MeshScale: 1.000, 0.452, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 260:
+Position: (11.328, 5.725, -18.383)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.415, 0.234)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.500, 1.050, 0.400
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 261:
+Position: (13.705, 3.613, -18.973)
+Rotation: (4.691, -74.540, 1.623)
+Size: (0.275, 0.221, 0.418)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.550, 1.050, 0.900
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 262:
+Position: (14.253, 3.476, -18.602)
+Rotation: (1.616, -164.666, 0.302)
+Size: (2.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 263:
+Position: (12.892, 3.326, -18.711)
+Rotation: (-79.576, 114.155, 81.029)
+Size: (0.405, 0.200, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 264:
+Position: (12.783, 3.654, -18.722)
+Rotation: (-34.685, 106.451, -1.966)
+Size: (0.275, 0.409, 0.360)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.350, 1.000, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 265:
+Position: (12.902, 3.765, -18.757)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.330, 0.226)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Glass
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.000, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 266:
+Position: (13.724, 3.381, -19.005)
+Rotation: (-50.420, 107.289, -92.537)
+Size: (0.490, 0.200, 0.290)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 267:
+Position: (15.670, 2.288, -19.473)
+Rotation: (58.767, 102.660, 176.877)
+Size: (0.275, 0.352, 0.214)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.450, 0.500, 0.100
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 268:
+Position: (13.510, 3.742, -18.924)
+Rotation: (-27.185, 106.161, 178.182)
+Size: (0.275, 0.237, 0.375)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.525, 1.050, 0.800
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 269:
+Position: (16.528, 1.823, -19.694)
+Rotation: (56.165, -72.261, 2.903)
+Size: (0.275, 1.662, 0.359)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.000, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 270:
+Position: (17.067, 1.374, -19.830)
+Rotation: (84.560, 88.076, 162.670)
+Size: (0.275, 0.470, 0.214)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.450, 0.700, 0.100
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 271:
+Position: (13.064, 3.941, -18.808)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.239, 0.205)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.550, 1.000, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 272:
+Position: (15.475, 3.510, -19.139)
+Rotation: (-11.107, -153.688, 7.552)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 273:
+Position: (11.106, 6.008, -18.333)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.260, 0.312, 0.320)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 1.000, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 274:
+Position: (12.586, 4.291, -18.687)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.630, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.395, 0.750, 0.250
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 275:
+Position: (12.895, 4.988, -18.825)
+Rotation: (85.034, 86.403, -108.997)
+Size: (0.496, 0.200, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 276:
+Position: (12.873, 4.780, -18.779)
+Rotation: (49.668, -72.753, -177.494)
+Size: (0.275, 0.204, 0.207)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 0.500, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 277:
+Position: (10.726, 6.278, -18.235)
+Rotation: (-16.691, 105.818, -1.693)
+Size: (0.275, 0.438, 0.250)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.500, 1.000, 0.250
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 278:
+Position: (13.029, 4.431, -18.812)
+Rotation: (-49.670, 107.247, 87.495)
+Size: (0.698, 0.275, 0.638)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Glass
+Transparency: 0.000
+MeshType: Cylinder
+MeshScale: 1.000, 0.450, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 279:
+Position: (12.801, 4.692, -18.757)
+Rotation: (-49.668, 107.247, 177.494)
+Size: (0.275, 0.204, 0.287)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 0.500, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 280:
+Position: (15.938, 2.168, -19.544)
+Rotation: (52.917, -72.522, 2.686)
+Size: (0.275, 0.678, 0.214)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.450, 0.800, 0.100
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 281:
+Position: (11.741, 5.419, -18.487)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.206, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.400, 0.560, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 282:
+Position: (12.692, 4.047, -18.708)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.368, 0.378)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Glass
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.400, 1.000, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 283:
+Position: (13.734, 1.431, -18.292)
+Rotation: (1.037, -179.738, 3.282)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.325, 0.145, 0.380
+Material: Plastic
+Transparency: 0.000
+
+Part 284:
+Position: (14.413, 3.128, -19.153)
+Rotation: (52.917, -72.522, 2.686)
+Size: (0.275, 0.621, 0.214)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.450, 1.000, 0.100
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 285:
+Position: (12.647, 4.824, -18.719)
+Rotation: (49.668, -72.753, 2.506)
+Size: (0.275, 0.322, 0.363)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 1.000, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 286:
+Position: (17.543, 1.123, -19.986)
+Rotation: (-41.283, -76.088, 92.153)
+Size: (0.210, 0.200, 0.285)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 287:
+Position: (11.116, 6.163, -18.339)
+Rotation: (59.658, -71.909, 3.198)
+Size: (0.275, 0.203, 0.234)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.500, 0.502, 0.400
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 288:
+Position: (12.210, 4.968, -18.604)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.355, 0.416)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 0.560, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 289:
+Position: (13.576, 3.803, -18.944)
+Rotation: (-49.668, 107.247, 177.494)
+Size: (0.275, 0.221, 0.448)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.550, 1.050, 0.800
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 290:
+Position: (13.649, 3.740, -18.962)
+Rotation: (-49.668, 107.247, 177.494)
+Size: (0.275, 0.277, 0.702)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Glass
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.550, 0.500, 0.800
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 291:
+Position: (14.422, 3.433, -19.165)
+Rotation: (49.668, -72.753, 2.506)
+Size: (0.275, 0.845, 0.359)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.350, 1.000, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 292:
+Position: (13.064, 3.941, -18.808)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.239, 0.303)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Glass
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.525, 1.000, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 293:
+Position: (12.663, 4.373, -18.709)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.577, 0.303)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 0.870, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 294:
+Position: (13.785, 3.554, -18.993)
+Rotation: (49.668, -72.753, 2.506)
+Size: (0.275, 0.618, 0.209)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.000, 0.900
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 295:
+Position: (12.979, 3.978, -18.785)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.228, 0.213)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.570, 0.125, 0.375
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 296:
+Position: (12.596, 3.518, -18.700)
+Rotation: (-34.683, 106.451, -91.969)
+Size: (0.453, 0.200, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 297:
+Position: (13.970, 3.137, -19.000)
+Rotation: (-28.433, 106.208, 88.159)
+Size: (0.288, 0.200, 0.278)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 298:
+Position: (13.353, 3.677, -18.879)
+Rotation: (-49.668, 107.247, 177.494)
+Size: (0.275, 0.411, 0.469)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Glass
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.500, 0.850, 0.700
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 299:
+Position: (13.493, 3.426, -18.910)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.287, 0.227)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.350, 1.000, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 300:
+Position: (13.255, 4.276, -18.869)
+Rotation: (-49.668, 107.247, 177.494)
+Size: (0.275, 0.541, 0.367)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.500, 1.050, 0.600
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 301:
+Position: (11.534, 5.545, -18.435)
+Rotation: (49.668, -72.753, -177.494)
+Size: (0.275, 0.214, 0.234)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 0.560, 0.400
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 302:
+Position: (13.357, 3.414, -18.873)
+Rotation: (-79.574, 114.150, -8.963)
+Size: (0.275, 0.409, 0.268)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.350, 1.000, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 303:
+Position: (13.740, 3.382, -18.944)
+Rotation: (-50.420, 107.289, 87.463)
+Size: (0.490, 0.200, 0.290)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 304:
+Position: (13.780, 4.056, -19.007)
+Rotation: (33.430, -73.601, 1.940)
+Size: (0.275, 0.225, 0.423)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.000, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 305:
+Position: (15.989, 1.552, -19.507)
+Rotation: (-55.664, 107.708, 87.121)
+Size: (1.785, 0.200, 0.301)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 306:
+Position: (13.132, 3.805, -18.822)
+Rotation: (-49.668, 107.247, 177.494)
+Size: (0.275, 0.207, 0.213)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.550, 0.250, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 307:
+Position: (11.718, 5.439, -18.483)
+Rotation: (49.668, -72.753, -177.494)
+Size: (0.275, 0.206, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.400, 0.560, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 308:
+Position: (13.522, 3.851, -18.931)
+Rotation: (-49.668, 107.247, 177.494)
+Size: (0.275, 0.204, 0.464)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.525, 1.050, 0.800
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 309:
+Position: (13.576, 3.744, -18.942)
+Rotation: (-34.685, 106.451, 178.034)
+Size: (0.275, 0.221, 0.408)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.550, 1.050, 0.800
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 310:
+Position: (12.926, 3.984, -18.771)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.200, 0.213)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.550, 0.250, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 311:
+Position: (13.074, 4.196, -18.818)
+Rotation: (49.668, -72.753, -177.494)
+Size: (0.275, 0.207, 0.303)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 0.500, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 312:
+Position: (12.160, 5.052, -18.593)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.998, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.050, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 313:
+Position: (12.613, 3.520, -18.639)
+Rotation: (-34.683, 106.451, 88.031)
+Size: (0.453, 0.200, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 314:
+Position: (13.360, 4.354, -18.901)
+Rotation: (-4.691, 105.460, 178.377)
+Size: (0.275, 0.413, 0.622)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.050, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 315:
+Position: (12.561, 4.865, -18.697)
+Rotation: (-85.032, -93.634, -160.970)
+Size: (0.275, 0.216, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.804, 0.804, 0.804
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.350, 1.050, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 316:
+Position: (14.777, 1.432, -18.704)
+Rotation: (0.138, -163.613, -2.139)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.314, 0.137, 0.369
+Material: Plastic
+Transparency: 0.000
+
+Part 317:
+Position: (13.142, 3.770, -18.825)
+Rotation: (-49.668, 107.247, 177.494)
+Size: (0.275, 0.207, 0.303)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Glass
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.525, 0.500, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 318:
+Position: (13.330, 4.811, -18.938)
+Rotation: (49.671, -72.762, 92.496)
+Size: (0.643, 0.200, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 319:
+Position: (12.688, 4.625, -18.725)
+Rotation: (49.668, -72.753, -177.494)
+Size: (0.275, 0.204, 0.210)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 0.500, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 320:
+Position: (14.804, 3.106, -19.261)
+Rotation: (-26.934, 106.150, 178.188)
+Size: (0.200, 0.217, 0.200)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.560, 0.200, 0.600
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 321:
+Position: (12.186, 5.056, -18.600)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.405, 0.211)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 0.560, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 322:
+Position: (13.581, 4.405, -18.931)
+Rotation: (4.696, -74.533, -88.375)
+Size: (0.496, 0.200, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 323:
+Position: (15.801, 2.742, -20.581)
+Rotation: (5.539, 125.281, -179.707)
+Size: (0.050, 0.050, 0.050)
+Shape: Normal
+ClassName: Part
+Color: 0.706, 0.502, 1.000
+Material: Neon
+Transparency: 2.000
+MeshType: Wedge
+MeshScale: 2.000, 30.000, 60.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 324:
+Position: (11.434, 5.687, -18.411)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.630, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.050, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 325:
+Position: (16.541, 1.616, -19.693)
+Rotation: (56.165, -72.261, 2.903)
+Size: (0.275, 1.046, 0.214)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.450, 0.900, 0.100
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 326:
+Position: (16.146, 1.942, -19.594)
+Rotation: (4.193, -74.551, 1.621)
+Size: (0.275, 0.247, 0.214)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.450, 0.600, 0.100
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 327:
+Position: (13.603, 3.652, -18.947)
+Rotation: (-40.283, -76.045, -177.877)
+Size: (0.275, 0.200, 0.287)
+Shape: Normal
+ClassName: Part
+Color: 0.973, 0.973, 0.973
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.560, 1.000, 0.900
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 328:
+Position: (13.163, 3.911, -18.833)
+Rotation: (49.668, -72.753, -177.494)
+Size: (0.275, 0.252, 0.213)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.570, 0.125, 0.375
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 329:
+Position: (13.029, 4.431, -18.812)
+Rotation: (-49.670, 107.247, 87.495)
+Size: (0.320, 0.275, 0.316)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Cylinder
+MeshScale: 1.000, 0.458, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 330:
+Position: (14.631, 3.258, -19.216)
+Rotation: (-26.934, 106.150, 178.188)
+Size: (0.200, 0.217, 0.200)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.560, 0.200, 0.600
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 331:
+Position: (10.927, 5.963, -18.281)
+Rotation: (-64.650, 108.747, -3.776)
+Size: (0.200, 0.450, 0.237)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.500, 1.000, 0.250
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 332:
+Position: (12.701, 3.528, -18.320)
+Rotation: (0.381, -177.198, 14.739)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 333:
+Position: (10.833, 6.364, -18.267)
+Rotation: (39.675, -73.325, 2.104)
+Size: (0.275, 0.281, 0.234)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.500, 1.050, 0.400
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 334:
+Position: (17.113, 1.084, -19.802)
+Rotation: (-85.965, -98.262, -66.354)
+Size: (0.940, 0.200, 0.285)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 335:
+Position: (14.045, 3.359, -19.060)
+Rotation: (-62.762, -77.808, -176.469)
+Size: (0.275, 0.221, 0.655)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.050, 0.900
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 336:
+Position: (15.442, 2.358, -19.413)
+Rotation: (56.165, -72.261, 2.903)
+Size: (0.275, 0.454, 0.214)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.450, 0.900, 0.100
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 337:
+Position: (13.604, 3.248, -18.968)
+Rotation: (-70.234, -79.191, 94.802)
+Size: (0.293, 0.200, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 338:
+Position: (14.747, 3.157, -19.246)
+Rotation: (-26.934, 106.150, 178.188)
+Size: (0.200, 0.217, 0.200)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.560, 0.200, 0.600
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 339:
+Position: (11.344, 5.880, -18.395)
+Rotation: (49.668, -72.753, -177.494)
+Size: (0.260, 0.226, 0.210)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 0.500, 1.000, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 340:
+Position: (16.979, 1.266, -19.803)
+Rotation: (5.192, -74.518, -178.372)
+Size: (0.275, 0.235, 0.586)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.050, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 341:
+Position: (10.961, 6.000, -18.291)
+Rotation: (-64.650, 108.747, -3.776)
+Size: (0.275, 0.418, 0.250)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.500, 1.000, 0.250
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 342:
+Position: (11.225, 6.069, -18.366)
+Rotation: (44.677, -73.073, 2.273)
+Size: (0.275, 0.223, 0.234)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.500, 1.000, 0.400
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 343:
+Position: (14.314, 3.300, -19.132)
+Rotation: (49.668, -72.753, 2.506)
+Size: (0.275, 0.845, 0.422)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.000, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 344:
+Position: (13.581, 4.405, -18.931)
+Rotation: (4.696, -74.533, -88.375)
+Size: (0.496, 0.200, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 345:
+Position: (12.853, 4.308, -18.761)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.398, 0.303)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.500, 1.000, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 346:
+Position: (13.632, 3.875, -18.962)
+Rotation: (72.124, -69.638, -174.716)
+Size: (0.275, 0.238, 0.381)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.525, 1.050, 0.800
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 347:
+Position: (14.750, 2.968, -19.242)
+Rotation: (74.975, 99.270, 173.726)
+Size: (0.275, 0.237, 0.214)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.450, 0.800, 0.100
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 348:
+Position: (13.565, 4.403, -18.991)
+Rotation: (4.696, -74.533, 91.625)
+Size: (0.496, 0.200, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 349:
+Position: (12.892, 4.762, -18.785)
+Rotation: (-85.032, -93.634, -160.970)
+Size: (0.275, 0.413, 0.622)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.050, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 350:
+Position: (15.233, 2.587, -19.362)
+Rotation: (17.191, -74.168, 1.694)
+Size: (0.275, 0.265, 0.214)
+Shape: Normal
+ClassName: Part
+Color: 0.051, 0.412, 0.675
+Material: Neon
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.450, 0.900, 0.100
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 351:
+Position: (12.521, 4.676, -18.680)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.248, 0.311)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.050, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 352:
+Position: (13.069, 3.937, -18.809)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.214, 0.205)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.570, 0.750, 0.750
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 353:
+Position: (12.067, 5.134, -18.569)
+Rotation: (-49.668, 107.247, -2.506)
+Size: (0.275, 0.745, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.400, 1.050, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 354:
+Position: (13.245, 4.337, -18.868)
+Rotation: (-64.650, 108.747, 176.224)
+Size: (0.275, 0.422, 0.412)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.500, 1.050, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 355:
+Position: (13.330, 4.811, -18.938)
+Rotation: (49.671, -72.762, 92.496)
+Size: (0.643, 0.200, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 356:
+Position: (12.895, 4.988, -18.825)
+Rotation: (85.034, 86.403, -108.997)
+Size: (0.496, 0.200, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 357:
+Position: (13.029, 4.431, -18.812)
+Rotation: (-49.670, 107.247, 87.495)
+Size: (0.698, 0.275, 0.732)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Cylinder
+MeshScale: 1.000, 0.425, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 358:
+Position: (12.960, 3.527, -18.767)
+Rotation: (-79.574, 114.150, -8.963)
+Size: (0.275, 0.309, 0.343)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Metal
+Transparency: 0.000
+MeshType: Brick
+MeshScale: 0.350, 1.000, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 359:
+Position: (12.462, 3.884, -18.673)
+Rotation: (-4.696, 105.467, -91.625)
+Size: (0.422, 0.200, 0.280)
+Shape: Normal
+ClassName: Part
+Color: 0.380, 0.141, 0.820
+Material: Neon
+Transparency: 0.000
+MeshType: Wedge
+MeshScale: 1.000, 0.300, 0.500
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 360:
+Position: (20.047, 4.900, -20.314)
+Rotation: (-0.169, -169.823, 0.000)
+Size: (2.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+MeshType: Head
+MeshScale: 1.250, 1.250, 1.250
+MeshOffset: 0.000, 0.000, 0.000
+Decal.Front = rbxasset://textures/face.png
+
+Part 361:
+Position: (20.046, 3.400, -20.316)
+Rotation: (0.000, -170.011, 0.000)
+Size: (2.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 362:
+Position: (21.526, 3.376, -20.562)
+Rotation: (0.303, -171.277, -0.066)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 363:
+Position: (18.656, 3.891, -19.563)
+Rotation: (88.953, -170.025, -0.012)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 364:
+Position: (20.539, 1.410, -20.402)
+Rotation: (0.000, -170.011, 0.000)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.314, 0.141, 0.369
+Material: Plastic
+Transparency: 0.000
+
+Part 365:
+Position: (19.554, 1.408, -20.228)
+Rotation: (0.000, -170.011, 0.000)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.329, 0.149, 0.384
+Material: Plastic
+Transparency: 0.000
+
+Part 366:
+Position: (20.082, 5.474, -20.116)
+Rotation: (-0.169, -169.823, 0.000)
+Size: (1.200, 0.800, 1.400)
+Shape: Normal
+ClassName: Part
+Color: 0.639, 0.635, 0.647
+Material: Plastic
+Transparency: 0.000
+MeshType: FileMesh
+MeshId: 71483350
+MeshTextureId: 607698990
+MeshScale: 0.660, 0.660, 0.660
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 367:
+Position: (8.056, 5.462, -15.780)
+Rotation: (-0.257, -157.031, -0.002)
+Size: (1.200, 0.800, 1.400)
+Shape: Normal
+ClassName: Part
+Color: 0.639, 0.635, 0.647
+Material: Plastic
+Transparency: 0.000
+MeshType: FileMesh
+MeshId: 71483350
+MeshTextureId: 607698990
+MeshScale: 0.660, 0.660, 0.660
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 368:
+Position: (7.977, 4.888, -15.967)
+Rotation: (-0.257, -157.031, -0.002)
+Size: (2.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+MeshType: Head
+MeshScale: 1.250, 1.250, 1.250
+MeshOffset: 0.000, 0.000, 0.000
+Decal.Front = rbxasset://textures/face.png
+
+Part 369:
+Position: (7.977, 3.388, -15.969)
+Rotation: (0.000, -157.223, 0.000)
+Size: (2.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 370:
+Position: (9.365, 3.366, -16.537)
+Rotation: (0.299, -158.468, -0.064)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 371:
+Position: (7.127, 4.534, -15.304)
+Rotation: (23.870, 20.333, 137.282)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 372:
+Position: (8.438, 1.398, -16.162)
+Rotation: (0.000, -157.223, 0.000)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.314, 0.141, 0.369
+Material: Plastic
+Transparency: 0.000
+
+Part 373:
+Position: (7.516, 1.397, -15.775)
+Rotation: (0.000, -157.223, 0.000)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.329, 0.149, 0.384
+Material: Plastic
+Transparency: 0.000
+
+Part 374:
+Position: (26.558, 4.816, -21.686)
+Rotation: (-18.065, -163.964, 3.662)
+Size: (1.200, 0.800, 1.400)
+Shape: Normal
+ClassName: Part
+Color: 0.639, 0.635, 0.647
+Material: Plastic
+Transparency: 0.000
+MeshType: FileMesh
+MeshId: 71483350
+MeshTextureId: 607698990
+MeshScale: 0.660, 0.660, 0.660
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 375:
+Position: (26.421, 4.332, -22.030)
+Rotation: (-18.065, -163.964, 3.662)
+Size: (2.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+MeshType: Head
+MeshScale: 1.250, 1.250, 1.250
+MeshOffset: 0.000, 0.000, 0.000
+Decal.Front = rbxasset://textures/face.png
+
+Part 376:
+Position: (26.200, 2.910, -22.452)
+Rotation: (-18.231, -164.014, 3.677)
+Size: (2.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 377:
+Position: (28.214, 3.418, -22.933)
+Rotation: (-7.211, 177.463, -63.056)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 378:
+Position: (25.283, 2.652, -21.082)
+Rotation: (30.427, -97.049, 19.872)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 379:
+Position: (26.717, 1.453, -22.625)
+Rotation: (-43.297, -84.825, -13.973)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.314, 0.141, 0.369
+Material: Plastic
+Transparency: 0.000
+
+Part 380:
+Position: (25.967, 1.389, -21.971)
+Rotation: (6.438, -118.907, 6.067)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.329, 0.149, 0.384
+Material: Plastic
+Transparency: 0.000
+
+Part 381:
+Position: (3.318, 4.470, -13.715)
+Rotation: (0.442, -154.948, -0.003)
+Size: (1.200, 0.800, 1.400)
+Shape: Normal
+ClassName: Part
+Color: 0.639, 0.635, 0.647
+Material: Plastic
+Transparency: 0.000
+MeshType: FileMesh
+MeshId: 71483350
+MeshTextureId: 607698990
+MeshScale: 0.660, 0.660, 0.660
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 382:
+Position: (3.236, 3.894, -13.891)
+Rotation: (0.334, -154.917, 0.003)
+Size: (2.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+MeshType: Head
+MeshScale: 1.250, 1.250, 1.250
+MeshOffset: 0.000, 0.000, 0.000
+Decal.Front = rbxasset://textures/face.png
+
+Part 383:
+Position: (3.238, 2.394, -13.889)
+Rotation: (-0.005, -154.841, -0.001)
+Size: (2.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 384:
+Position: (4.597, 2.404, -14.528)
+Rotation: (-0.149, -154.876, -0.332)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 385:
+Position: (2.528, 2.436, -13.008)
+Rotation: (44.229, -154.842, -27.722)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 386:
+Position: (3.474, 0.949, -14.562)
+Rotation: (-84.746, -154.844, 0.004)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.314, 0.141, 0.369
+Material: Plastic
+Transparency: 0.000
+
+Part 387:
+Position: (3.151, 1.385, -12.897)
+Rotation: (4.410, -154.843, 0.001)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.329, 0.149, 0.384
+Material: Plastic
+Transparency: 0.000
+
+Part 388:
+Position: (32.972, 5.343, -21.365)
+Rotation: (-14.067, 170.822, 2.605)
+Size: (1.200, 0.800, 1.400)
+Shape: Normal
+ClassName: Part
+Color: 0.639, 0.635, 0.647
+Material: Plastic
+Transparency: 0.000
+MeshType: FileMesh
+MeshId: 71483350
+MeshTextureId: 607698990
+MeshScale: 0.660, 0.660, 0.660
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 389:
+Position: (32.999, 4.834, -21.698)
+Rotation: (-14.067, 170.822, 2.605)
+Size: (2.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+MeshType: Head
+MeshScale: 1.250, 1.250, 1.250
+MeshOffset: 0.000, 0.000, 0.000
+Decal.Front = rbxasset://textures/face.png
+
+Part 390:
+Position: (32.974, 3.368, -21.631)
+Rotation: (9.146, -152.057, 6.253)
+Size: (2.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 391:
+Position: (34.052, 3.164, -21.836)
+Rotation: (71.531, 160.816, 25.703)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 392:
+Position: (32.083, 3.379, -20.894)
+Rotation: (46.738, -85.508, -2.264)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 393:
+Position: (33.418, 1.419, -21.660)
+Rotation: (-6.602, -153.201, 3.764)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.314, 0.141, 0.369
+Material: Plastic
+Transparency: 0.000
+
+Part 394:
+Position: (32.482, 1.406, -21.287)
+Rotation: (-8.904, -165.850, 4.293)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.329, 0.149, 0.384
+Material: Plastic
+Transparency: 0.000
+
+Part 395:
+Position: (-1.543, 5.373, -11.608)
+Rotation: (37.063, -141.764, -3.060)
+Size: (1.200, 0.800, 1.400)
+Shape: Normal
+ClassName: Part
+Color: 0.639, 0.635, 0.647
+Material: Plastic
+Transparency: 0.000
+MeshType: FileMesh
+MeshId: 71483350
+MeshTextureId: 607698990
+MeshScale: 0.660, 0.660, 0.660
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 396:
+Position: (-1.404, 4.794, -11.480)
+Rotation: (37.063, -141.764, -3.060)
+Size: (2.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+MeshType: Head
+MeshScale: 1.250, 1.250, 1.250
+MeshOffset: 0.000, 0.000, 0.000
+Decal.Front = rbxasset://textures/face.png
+
+Part 397:
+Position: (-0.985, 3.448, -11.029)
+Rotation: (18.279, -137.595, 0.000)
+Size: (2.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 398:
+Position: (0.494, 3.845, -11.720)
+Rotation: (46.511, 162.748, -35.840)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 399:
+Position: (-1.159, 4.780, -10.086)
+Rotation: (-3.518, 45.514, 102.597)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+
+Part 400:
+Position: (-0.419, 1.419, -11.150)
+Rotation: (0.142, -137.597, 0.002)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.314, 0.141, 0.369
+Material: Plastic
+Transparency: 0.000
+
+Part 401:
+Position: (-1.156, 1.430, -10.474)
+Rotation: (-0.127, -137.597, -0.001)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.329, 0.149, 0.384
+Material: Plastic
+Transparency: 0.000
+
+Part 402:
+Position: (13.213, 13.400, -26.138)
+Rotation: (0.000, -165.001, 0.000)
+Size: (42.000, 26.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.639, 0.635, 0.647
+Material: Plastic
+Transparency: 0.000
+Decal.Front = 122714132204276
+Light: True
+LightRange: 35.000
+LightBrightness: 1.5000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+
+]==]
+---------------------------------------------------------
+
+-- لودینگ بمبی با قرارگیری جلوی پلیر
+local function BuildAndVerifyMap(data)
+    print("شروع ساخت پارت‌ها در جلوی پلیر...")
+    local partsToBuild = {}
+
+    local cleanData = data:gsub("Part %d+:", "|||")
+    for partBlock in cleanData:gmatch("([^|]+)") do
+        local x, y, z = partBlock:match("Position:%s*%(([^,]+),%s*([^,]+),%s*([^)]+)%)")
+        if x and y and z then
+            local rx, ry, rz = partBlock:match("Rotation:%s*%(([^,]+),%s*([^,]+),%s*([^)]+)%)")
+            local sx, sy, sz = partBlock:match("Size:%s*%(([^,]+),%s*([^,]+),%s*([^)]+)%)")
+            local shape = partBlock:match("Shape:%s*([%a%d]+)")
+            -- رنگ خود پارت (بدون قاطی شدن با LightColor / FireColor / ...)
+            local r, g, b = partBlock:match("%f[%a]Color:%s*([^,\r\n]+),%s*([^,\r\n]+),%s*([^,\r\n]+)")
+            local mat = partBlock:match("Material:%s*([%a%d]+)")
+            local trans = partBlock:match("Transparency:%s*([%d%.%-]+)")
+
+            -- همه Decal ها و Texture ها (هر وجه یک خط)
+            local decals, textures = {}, {}
+            for face, id in partBlock:gmatch("Decal%.(%a+)%s*=%s*(%d+)") do
+                table.insert(decals, {face = face, id = id})
+            end
+            for face, id in partBlock:gmatch("Texture%.(%a+)%s*=%s*(%d+)") do
+                table.insert(textures, {face = face, id = id})
+            end
+
+            -- وجه‌های Studs
+            local studFaces = {}
+            for face in partBlock:gmatch("Stud%.(%a+):%s*[Tt]rue") do
+                table.insert(studFaces, face)
+            end
+
+            local meshType = partBlock:match("MeshType:%s*(%a+)")
+            local meshId = partBlock:match("MeshId:%s*(%S+)") or partBlock:match("Mesh:%s*(%S+)")
+            local meshTextureId = partBlock:match("MeshTextureId:%s*(%S+)") or partBlock:match("MeshTexture:%s*(%S+)")
+
+            -- MeshScale (پشتیبانی از اعداد منفی)
+            local msX, msY, msZ = partBlock:match("MeshScale:%s*([^,\r\n]+),%s*([^,\r\n]+),%s*([^,\r\n]+)")
+
+            -- [ PointLight ] مشخصات دقیق (سازگار با اکسپورتر قدیمی و جدید)
+            local lightRange = getNumber(partBlock, "LightRange")
+            local lightBrightness = getNumber(partBlock, "LightBrightness")
+            local lightColor = getColor3(partBlock, "LightColor")
+            local lightShadows = getBoolean(partBlock, "LightShadows")
+            local lightEnabled = getBoolean(partBlock, "LightEnabled")
+            local hasLight = (getBoolean(partBlock, "Light") == true) or lightRange ~= nil or lightBrightness ~= nil or lightColor ~= nil
+
+            -- [ Fire / Sparkles / Smoke ] مشخصات دقیق (فقط مقادیری که در دیتا وجود دارند)
+            local hasFire = partBlock:match("Fire:%s*[Tt]rue") and true or false
+            local hasSparkles = partBlock:match("Sparkles:%s*[Tt]rue") and true or false
+            local hasSmoke = partBlock:match("Smoke:%s*[Tt]rue") and true or false
+
+            local fireProps, sparklesProps, smokeProps = {}, {}, {}
+            if hasFire then
+                fireProps.Color = getColor3(partBlock, "FireColor")
+                fireProps.SecondaryColor = getColor3(partBlock, "FireSecondaryColor")
+                fireProps.Heat = getNumber(partBlock, "FireHeat")
+                fireProps.Size = getNumber(partBlock, "FireSize")
+                if getBoolean(partBlock, "FireEnabled") == false then fireProps.Enabled = false end
+            end
+            if hasSparkles then
+                sparklesProps.SparkleColor = getColor3(partBlock, "SparklesColor")
+                if getBoolean(partBlock, "SparklesEnabled") == false then sparklesProps.Enabled = false end
+            end
+            if hasSmoke then
+                smokeProps.Color = getColor3(partBlock, "SmokeColor")
+                smokeProps.Size = getNumber(partBlock, "SmokeSize")
+                smokeProps.Opacity = getNumber(partBlock, "SmokeOpacity")
+                smokeProps.RiseVelocity = getNumber(partBlock, "SmokeRiseVelocity")
+                if getBoolean(partBlock, "SmokeEnabled") == false then smokeProps.Enabled = false end
+            end
+
+            local isUnanchored = partBlock:match("Unanchored:%s*[Tt]rue") and true or false
+
+            -- تعیین شکل F3X
+            local f3xShape = SHAPE_MAP[shape or "Normal"] or "Normal"
+            if partBlock:match("SpawnPoint:%s*[Tt]rue") then f3xShape = "Spawn"
+            elseif partBlock:match("VehicleSeat:%s*[Tt]rue") then f3xShape = "Vehicle Seat"
+            elseif partBlock:match("[^e]Seat:%s*[Tt]rue") then f3xShape = "Seat" end
+
+            local pColor = Color3.new(1, 1, 1)
+            if r and g and b then
+                local rn, gn, bn = safeNum(r), safeNum(g), safeNum(b)
+                if rn > 1 or gn > 1 or bn > 1 then pColor = Color3.fromRGB(rn, gn, bn)
+                else pColor = Color3.new(rn, gn, bn) end
+            end
+
+            -- فقط وقتی Mesh بساز که MeshId داشته باشد یا نوع Mesh غیر از FileMesh باشد
+            -- (FileMesh بدون MeshId پارت را نامرئی می‌کند)
+            local isFileType = (meshType == nil or meshType == "File" or meshType == "FileMesh")
+            local needMesh = (meshId ~= nil) or (meshType ~= nil and not isFileType)
+
+            table.insert(partsToBuild, {
+                pos = Vector3.new(safeNum(x), safeNum(y), safeNum(z)),
+                rot = Vector3.new(safeNum(rx), safeNum(ry), safeNum(rz)),
+                shape = f3xShape, size = Vector3.new(safeNum(sx,1), safeNum(sy,1), safeNum(sz,1)),
+                color = pColor, material = mat or "Plastic", transparency = safeNum(trans),
+                decals = decals, textures = textures, studFaces = studFaces,
+                meshType = meshType, meshId = meshId, meshTextureId = meshTextureId, needMesh = needMesh,
+                meshScale = Vector3.new(safeNum(msX, 1), safeNum(msY, 1), safeNum(msZ, 1)),
+                hasLight = hasLight, lightRange = lightRange, lightBrightness = lightBrightness,
+                lightColor = lightColor, lightShadows = lightShadows, lightEnabled = lightEnabled,
+                hasFire = hasFire, hasSparkles = hasSparkles, hasSmoke = hasSmoke,
+                fireProps = fireProps, sparklesProps = sparklesProps, smokeProps = smokeProps,
+                collision = not (partBlock:match("CanCollide:%s*[Ff]alse")),
+                isUnanchored = isUnanchored
+            })
+        end
+    end
+
+    local totalParts = #partsToBuild
+    if totalParts == 0 then warn("خطا: پارتی یافت نشد!") return end
+
+    -- پیدا کردن مرکز و پایین‌ترین نقطه کل مدل برای اسپاون جلوی پلیر
+    local minPos, maxPos
+    for _, p in ipairs(partsToBuild) do
+        if not minPos then
+            minPos = p.pos
+            maxPos = p.pos
+        else
+            minPos = Vector3.new(math.min(minPos.X, p.pos.X), math.min(minPos.Y, p.pos.Y), math.min(minPos.Z, p.pos.Z))
+            maxPos = Vector3.new(math.max(maxPos.X, p.pos.X), math.max(maxPos.Y, p.pos.Y), math.max(maxPos.Z, p.pos.Z))
+        end
+    end
+
+    -- Pivot اصلیِ مدل خام
+    local modelCenter = Vector3.new((minPos.X + maxPos.X) / 2, minPos.Y, (minPos.Z + maxPos.Z) / 2)
+    local modelPivot = CFrame.new(modelCenter)
+
+    -- Pivot مقصد (جلوی پلیر با استفاده از متغیر فاصله)
+    local targetPivot = CFrame.new(0, 0, 0)
+    local hrp = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        local flatLook = Vector3.new(hrp.CFrame.LookVector.X, 0, hrp.CFrame.LookVector.Z)
+        if flatLook.Magnitude < 0.01 then flatLook = Vector3.new(0, 0, -1) else flatLook = flatLook.Unit end
+
+        local targetPos = hrp.Position + (flatLook * SPAWN_DISTANCE) - Vector3.new(0, SPAWN_HEIGHT_OFFSET, 0)
+        targetPivot = CFrame.lookAt(targetPos, targetPos + flatLook)
+    end
+
+    local batches = {
+        resize = {}, color = {}, material = {}, anchor = {}, collision = {},
+        meshCreate = {}, meshSync = {}, decalCreate = {}, decalSync = {},
+        lightCreate = {}, lightSync = {}, decorationCreate = {}, decorationSync = {}, surface = {}
+    }
+
+    local completed = 0
+
+    -- افزودن Decal/Texture های یک پارت
+    local function addFaceTextures(p, list, textureType)
+        for _, item in ipairs(list) do
+            local formattedFace = item.face:sub(1,1):upper() .. item.face:sub(2):lower()
+            local faceSuccess, faceEnum = pcall(function() return Enum.NormalId[formattedFace] end)
+            if faceSuccess and faceEnum then
+                table.insert(batches.decalCreate, {Part = p, Face = faceEnum, TextureType = textureType})
+                table.insert(batches.decalSync, {Part = p, Face = faceEnum, TextureType = textureType, Texture = "rbxassetid://"..item.id})
+            end
+        end
+    end
+
+    for _, pData in ipairs(partsToBuild) do
+        task.spawn(function()
+            local success, p = pcall(function()
+                local originalCFrame = CFrame.new(pData.pos) * CFrame.fromOrientation(math.rad(pData.rot.X), math.rad(pData.rot.Y), math.rad(pData.rot.Z))
+                local relativeCFrame = modelPivot:ToObjectSpace(originalCFrame)
+                local baseCFrame = targetPivot * relativeCFrame
+
+                -- فیکس 90 درجه کج بودن MeshType: Cylinder
+                if pData.meshType == "Cylinder" then
+                    baseCFrame = baseCFrame * CFrame.Angles(0, 0, math.rad(90))
+                    pData.size = Vector3.new(pData.size.Y, pData.size.X, pData.size.Z)
+                    pData.meshScale = Vector3.new(pData.meshScale.Y, pData.meshScale.X, pData.meshScale.Z)
+                end
+
+                return remote:InvokeServer("CreatePart", pData.shape, baseCFrame, workspace)
+            end)
+
+            if success and p and typeof(p) == "Instance" then
+                table.insert(batches.resize, {Part = p, CFrame = p.CFrame, Size = pData.size})
+                table.insert(batches.color, {Part = p, Color = pData.color})
+                table.insert(batches.anchor, {Part = p, Anchored = not pData.isUnanchored})
+                table.insert(batches.collision, {Part = p, CanCollide = pData.collision})
+
+                local matSuccess, matEnum = pcall(function() return Enum.Material[pData.material:gsub("%s+", "")] end)
+                table.insert(batches.material, {Part = p, Material = matSuccess and matEnum or Enum.Material.Plastic, Transparency = pData.transparency})
+
+                -- PointLight: اگر دیتا مشخصات خودش را دارد دقیقاً همان اعمال می‌شود
+                if pData.hasLight or LIGHT_ALL_PARTS then
+                    local targetRange, targetBright
+                    if pData.hasLight then
+                        targetRange = pData.lightRange or 60
+                        targetBright = pData.lightBrightness or 3
+                    else
+                        targetRange = tonumber(GLOBAL_LIGHT_RANGE) or 15
+                        targetBright = tonumber(GLOBAL_LIGHT_BRIGHTNESS) or 3
+                    end
+
+                    local lightChange = {
+                        Part = p,
+                        LightType = "PointLight",
+                        Range = targetRange,
+                        Brightness = targetBright,
+                        Color = pData.lightColor or Color3.new(1, 1, 1),
+                        Shadows = (pData.lightShadows == true)
+                    }
+                    if pData.lightEnabled == false then lightChange.Enabled = false end
+
+                    table.insert(batches.lightCreate, {Part = p, LightType = "PointLight"})
+                    table.insert(batches.lightSync, lightChange)
+                end
+
+                -- Fire / Sparkles / Smoke با مشخصات دقیق
+                if pData.hasFire then
+                    table.insert(batches.decorationCreate, {Part = p, DecorationType = "Fire"})
+                    local change = {Part = p, DecorationType = "Fire"}
+                    for k, v in pairs(pData.fireProps) do change[k] = v end
+                    table.insert(batches.decorationSync, change)
+                end
+                if pData.hasSparkles then
+                    table.insert(batches.decorationCreate, {Part = p, DecorationType = "Sparkles"})
+                    local change = {Part = p, DecorationType = "Sparkles"}
+                    for k, v in pairs(pData.sparklesProps) do change[k] = v end
+                    table.insert(batches.decorationSync, change)
+                end
+                if pData.hasSmoke then
+                    table.insert(batches.decorationCreate, {Part = p, DecorationType = "Smoke"})
+                    local change = {Part = p, DecorationType = "Smoke"}
+                    for k, v in pairs(pData.smokeProps) do change[k] = v end
+                    table.insert(batches.decorationSync, change)
+                end
+
+                -- Mesh
+                if pData.needMesh then
+                    table.insert(batches.meshCreate, {Part = p})
+                    local mTypeEnum = Enum.MeshType.FileMesh
+                    if pData.meshType then
+                        local meshTypeMap = {
+                            File = "FileMesh", FileMesh = "FileMesh", Block = "Brick", Brick = "Brick",
+                            Head = "Head", Sphere = "Sphere", Wedge = "Wedge", Cylinder = "Cylinder"
+                        }
+                        local mappedType = meshTypeMap[pData.meshType] or pData.meshType
+                        local typeSuccess, typeEnum = pcall(function() return Enum.MeshType[mappedType] end)
+                        if typeSuccess and typeEnum then mTypeEnum = typeEnum end
+                    end
+
+                    local mId, tId = "", ""
+                    if pData.meshId then local n = pData.meshId:match("%d+") if n then mId = "rbxassetid://"..n end end
+                    if pData.meshTextureId then local n = pData.meshTextureId:match("%d+") if n then tId = "rbxassetid://"..n end end
+
+                    table.insert(batches.meshSync, {
+                        Part = p, MeshType = mTypeEnum, MeshId = mId,
+                        TextureId = tId, Scale = pData.meshScale, Offset = Vector3.new(0, 0, 0)
+                    })
+                end
+
+                -- Decal و Surface Texture (همه وجه‌ها)
+                addFaceTextures(p, pData.decals, "Decal")
+                addFaceTextures(p, pData.textures, "Texture")
+
+                -- Studs
+                if #pData.studFaces > 0 then
+                    local surfaces = {}
+                    for _, face in ipairs(pData.studFaces) do
+                        local formattedFace = face:sub(1,1):upper() .. face:sub(2):lower()
+                        if pcall(function() return Enum.NormalId[formattedFace] end) then
+                            surfaces[formattedFace] = Enum.SurfaceType.Studs
+                        end
+                    end
+                    table.insert(batches.surface, {Part = p, Surfaces = surfaces})
+                end
+            end
+            completed = completed + 1
+        end)
+    end
+
+    while completed < totalParts do RunService.Heartbeat:Wait() end
+    print("پایه‌ها ایجاد شدند! تزریق یکجای تمامی استایل‌ها...")
+
+    FireMassiveSync("SyncResize", batches.resize)
+    FireMassiveSync("SyncColor", batches.color)
+    FireMassiveSync("SyncMaterial", batches.material)
+    FireMassiveSync("SyncAnchor", batches.anchor)
+    FireMassiveSync("SyncCollision", batches.collision)
+    FireMassiveSync("SyncSurface", batches.surface)
+
+    if #batches.lightCreate > 0 then
+        ActiveSyncs = ActiveSyncs + 1
+        task.spawn(function()
+            pcall(function() remote:InvokeServer("CreateLights", batches.lightCreate) end)
+            pcall(function() remote:InvokeServer("SyncLighting", batches.lightSync) end)
+            ActiveSyncs = ActiveSyncs - 1
+        end)
+    end
+
+    -- ساخت افکت‌ها و بعد اعمال مشخصات دقیقشان (رنگ، اندازه و ...) در همان رشته تا ترتیب حفظ شود
+    if #batches.decorationCreate > 0 then
+        ActiveSyncs = ActiveSyncs + 1
+        task.spawn(function()
+            pcall(function() remote:InvokeServer("CreateDecorations", batches.decorationCreate) end)
+            pcall(function() remote:InvokeServer("SyncDecorate", batches.decorationSync) end)
+            ActiveSyncs = ActiveSyncs - 1
+        end)
+    end
+
+    if #batches.meshCreate > 0 then
+        ActiveSyncs = ActiveSyncs + 1
+        task.spawn(function()
+            pcall(function() remote:InvokeServer("CreateMeshes", batches.meshCreate) end)
+            pcall(function() remote:InvokeServer("SyncMesh", batches.meshSync) end)
+            ActiveSyncs = ActiveSyncs - 1
+        end)
+    end
+
+    if #batches.decalCreate > 0 then
+        ActiveSyncs = ActiveSyncs + 1
+        task.spawn(function()
+            pcall(function() remote:InvokeServer("CreateTextures", batches.decalCreate) end)
+            pcall(function() remote:InvokeServer("SyncTexture", batches.decalSync) end)
+            ActiveSyncs = ActiveSyncs - 1
+        end)
+    end
+
+    print("در حال هماهنگی با سرور...")
+    while ActiveSyncs > 0 do RunService.Heartbeat:Wait() end
+    print("مدل با موفقیت در مقابل شما اسپاون شد!")
+end
+
+---------------------------------------------------------
+-- اجرای اسکریپت اصلی
+---------------------------------------------------------
+task.spawn(function()
+    BuildAndVerifyMap(RawData)
+end)
