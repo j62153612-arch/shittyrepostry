@@ -182,7 +182,7 @@ TestBtn.Position = UDim2.new(1, -176, 0.5, -9)
 TestBtn.BackgroundColor3 = Color3.fromRGB(10, 32, 18)
 TestBtn.BorderSizePixel = 1
 TestBtn.BorderColor3 = Color3.fromRGB(0, 200, 85)
-TestBtn.Text = "Test"
+TestBtn.Text = "Scan"
 TestBtn.TextSize = 11
 TestBtn.TextColor3 = Color3.fromRGB(0, 255, 110)
 TestBtn.Parent = Header
@@ -660,7 +660,7 @@ local function runAuthorizedTests()
         end
 
         State.running = false
-        TestBtn.Text = "Test"
+        TestBtn.Text = "Scan"
         emit("COMPLETE", "Testing Finished", total .. " requests")
         task.wait(0.5)
         printVortyxExploitReport()
