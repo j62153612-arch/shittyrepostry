@@ -1,0 +1,304 @@
+-- Keyword Disabler Panel v3 (Toggle + Live Monitor)
+-- Disable  : disables every LocalScript/Script/ModuleScript whose name contains a keyword
+--            and keeps watching so nothing gets re-enabled or created again.
+-- Disabled!: click again to stop monitoring and restore everything.
+
+local Players = game:GetService("Players")
+local StarterPlayer = game:GetService("StarterPlayer")
+local ReplicatedFirst = game:GetService("ReplicatedFirst")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- ===== Settings =====
+local KEYWORDS = { "anti", "cheat", "ac", "collision", "noclip", "hack", "exploit", "monitor" }
+
+-- PlayerModule contains "play" and disabling it breaks movement, so it stays protected
+local PROTECTED_NAMES = {
+	["PlayerModule"] = true,
+	["RbxCharacterSounds"] = true,
+	["Animate"] = true,
+}
+
+local SWEEP_INTERVAL = 0.5 -- seconds between full re-scans (backup for the live events)
+
+-- ===== State =====
+local active = false
+local runId = 0
+local connections = {}
+local hooked = {}          -- [container] = true
+local watched = {}         -- [script] = true
+local toRestoreLocals = {} -- [BaseScript] = true (was enabled before we touched it)
+local parkedLocals = {}    -- [BaseScript] = oldParent (fallback if Disabled didn't stick)
+local parkedModules = {}   -- [ModuleScript] = oldParent
+local disabledCount = 0
+
+-- ===== Logic =====
+local function matches(name)
+	if PROTECTED_NAMES[name] then return false end
+	local lowered = string.lower(name)
+	for _, kw in ipairs(KEYWORDS) do
+		if string.find(lowered, kw, 1, true) then
+			return true
+		end
+	end
+	return false
+end
+
+-- StarterX folders are only templates; the scripts that really run live in
+-- PlayerScripts and in the current Character, so those are scanned too.
+local function getContainers()
+	return {
+		ReplicatedFirst,
+		ReplicatedStorage,
+		StarterPlayer:FindFirstChild("StarterCharacterScripts"),
+		StarterPlayer:FindFirstChild("StarterPlayerScripts"),
+		LocalPlayer:FindFirstChild("PlayerScripts"),
+		LocalPlayer.Character,
+	}
+end
+
+local process
+
+local function hookWatch(obj)
+	if watched[obj] then return end
+	watched[obj] = true
+
+	if obj:IsA("BaseScript") then
+		-- if the game turns a target script back on, turn it off again
+		table.insert(connections, obj:GetPropertyChangedSignal("Disabled"):Connect(function()
+			if active and not obj.Disabled and matches(obj.Name) then
+				task.defer(function()
+					if active then
+						pcall(function() obj.Disabled = true end)
+					end
+				end)
+			end
+		end))
+	end
+
+	-- if a script gets renamed to a target name, catch it
+	table.insert(connections, obj:GetPropertyChangedSignal("Name"):Connect(function()
+		if active then
+			task.defer(process, obj)
+		end
+	end))
+end
+
+process = function(obj)
+	if not active then return end
+	if not (obj:IsA("BaseScript") or obj:IsA("ModuleScript")) then return end
+
+	hookWatch(obj)
+	if not matches(obj.Name) then return end
+
+	if obj:IsA("BaseScript") then -- LocalScript / Script
+		if not obj.Disabled then
+			if toRestoreLocals[obj] == nil then
+				toRestoreLocals[obj] = true
+			end
+			pcall(function() obj.Disabled = true end)
+			if not obj.Disabled then
+				-- fallback: Disabled didn't stick, remove the script instead
+				pcall(function()
+					parkedLocals[obj] = obj.Parent
+					obj.Parent = nil
+				end)
+			end
+			disabledCount += 1
+		end
+	else -- ModuleScript (has no Disabled property)
+		if obj.Parent then
+			parkedModules[obj] = obj.Parent
+			pcall(function() obj.Parent = nil end)
+			disabledCount += 1
+		end
+	end
+end
+
+local function hookContainer(container)
+	if not container or hooked[container] then return end
+	hooked[container] = true
+
+	table.insert(connections, container.DescendantAdded:Connect(function(d)
+		task.defer(process, d)
+	end))
+
+	for _, d in ipairs(container:GetDescendants()) do
+		process(d)
+	end
+end
+
+local function startMonitor()
+	active = true
+	runId += 1
+	local myId = runId
+	disabledCount = 0
+
+	for _, c in ipairs(getContainers()) do
+		hookContainer(c)
+	end
+
+	-- new character = new copies of StarterCharacterScripts
+	table.insert(connections, LocalPlayer.CharacterAdded:Connect(function(char)
+		if active then hookContainer(char) end
+	end))
+
+	-- backup sweep: hooks containers that appeared late and re-checks everything
+	task.spawn(function()
+		while active and runId == myId do
+			for _, c in ipairs(getContainers()) do
+				if c then
+					if hooked[c] then
+						for _, d in ipairs(c:GetDescendants()) do
+							process(d)
+						end
+					else
+						hookContainer(c)
+					end
+				end
+			end
+			task.wait(SWEEP_INTERVAL)
+		end
+	end)
+
+	return disabledCount
+end
+
+local function stopMonitor()
+	active = false
+	runId += 1
+
+	for _, c in ipairs(connections) do
+		pcall(function() c:Disconnect() end)
+	end
+	connections = {}
+	hooked = {}
+	watched = {}
+
+	local n = 0
+	for s in pairs(toRestoreLocals) do
+		pcall(function()
+			s.Disabled = false
+			n += 1
+		end)
+	end
+	for s, p in pairs(parkedLocals) do
+		pcall(function() s.Parent = p end)
+	end
+	for m, p in pairs(parkedModules) do
+		pcall(function()
+			m.Parent = p
+			n += 1
+		end)
+	end
+
+	toRestoreLocals = {}
+	parkedLocals = {}
+	parkedModules = {}
+	return n
+end
+
+-- ===== UI =====
+local parentGui = (gethui and gethui()) or game:GetService("CoreGui")
+pcall(function()
+	local old = parentGui:FindFirstChild("KeywordDisablerPanel")
+	if old then old:Destroy() end
+end)
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "KeywordDisablerPanel"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+local ok = pcall(function() gui.Parent = parentGui end)
+if not ok then gui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+local Frame = Instance.new("Frame")
+Frame.Size = UDim2.new(0, 220, 0, 110)
+Frame.Position = UDim2.new(0.5, -110, 0.5, -55)
+Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+Frame.BorderSizePixel = 0
+Frame.Parent = gui
+Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 10)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 34)
+title.BackgroundColor3 = Color3.fromRGB(45, 45, 52)
+title.BorderSizePixel = 0
+title.Text = "Anti Cheat Bypasser"
+title.TextColor3 = Color3.new(1, 1, 1)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 16
+title.Parent = Frame
+Instance.new("UICorner", title).CornerRadius = UDim.new(0, 10)
+
+local button = Instance.new("TextButton")
+button.Size = UDim2.new(1, -30, 0, 44)
+button.Position = UDim2.new(0, 15, 0, 52)
+button.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+button.BorderSizePixel = 0
+button.Text = "Bypass"
+button.TextColor3 = Color3.new(1, 1, 1)
+button.Font = Enum.Font.GothamBold
+button.TextSize = 18
+button.AutoButtonColor = false
+button.Parent = Frame
+Instance.new("UICorner", button).CornerRadius = UDim.new(0, 8)
+
+-- ===== Drag =====
+local function makeDraggable(targetFrame)
+	local uis = game:GetService("UserInputService")
+	local tweenService = game:GetService("TweenService")
+
+	local dragging, dragInput, dragStart, startPos
+
+	targetFrame.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = targetFrame.Position
+
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					dragging = false
+				end
+			end)
+		end
+	end)
+
+	targetFrame.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			dragInput = input
+		end
+	end)
+
+	uis.InputChanged:Connect(function(input)
+		if input == dragInput and dragging then
+			local delta = input.Position - dragStart
+			local newPos = UDim2.new(
+				startPos.X.Scale,
+				startPos.X.Offset + delta.X,
+				startPos.Y.Scale,
+				startPos.Y.Offset + delta.Y
+			)
+			tweenService:Create(targetFrame, TweenInfo.new(0.15), {Position = newPos}):Play()
+		end
+	end)
+end
+
+makeDraggable(Frame)
+
+-- ===== Button (Toggle) =====
+button.MouseButton1Click:Connect(function()
+	if not active then
+		local n = startMonitor()
+		button.BackgroundColor3 = Color3.fromRGB(50, 200, 90)
+		button.Text = "Bypassed!"
+		print("[Disabler] Monitoring ON - disabled/removed " .. n .. " scripts so far")
+	else
+		local n = stopMonitor()
+		button.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+		button.Text = "Bypass"
+		print("[Disabler] Monitoring OFF - restored " .. n .. " scripts")
+	end
+end)
