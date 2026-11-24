@@ -1,0 +1,696 @@
+--// Spoofer Panel : Speed / JumpPower / Fly / Noclip  (normal methods only, no hooks / metatable)
+
+local Players    = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS        = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local lp         = Players.LocalPlayer
+local env        = (getgenv and getgenv()) or _G
+
+if env.SpooferCleanup then pcall(env.SpooferCleanup) end
+
+----------------------------------------------------------------------
+-- Helpers
+----------------------------------------------------------------------
+local STATE = {
+	speed = { on = false, method = 1, value = 50 },
+	jump  = { on = false, method = 1, value = 100 },
+	fly   = { on = false, method = 1, value = 60 },
+	noclip = { on = false, method = 1, value = 0 },
+}
+local F, objs, conns = {}, {}, {}
+
+local function track(key, o)
+	objs[key] = objs[key] or {}
+	table.insert(objs[key], o)
+	return o
+end
+
+local function cleanup(key)
+	for _, o in ipairs(objs[key] or {}) do
+		pcall(function()
+			if typeof(o) == "RBXScriptConnection" then o:Disconnect() else o:Destroy() end
+		end)
+	end
+	objs[key] = {}
+end
+
+local function getChar()
+	local c = lp.Character
+	if not c then return end
+	return c, c:FindFirstChildOfClass("Humanoid"), c:FindFirstChild("HumanoidRootPart")
+end
+
+----------------------------------------------------------------------
+-- SPEED
+----------------------------------------------------------------------
+local ws = {}
+F.speed = {
+	start = function()
+		local c, hum, hrp = getChar()
+		if not (hum and hrp) then return end
+		local m = STATE.speed.method
+		if m == 1 then
+			ws.orig = hum.WalkSpeed
+		elseif m == 5 then
+			local att = track("speed", Instance.new("Attachment"))
+			att.Parent = hrp
+			local lv = track("speed", Instance.new("LinearVelocity"))
+			lv.Attachment0 = att
+			lv.RelativeTo = Enum.ActuatorRelativeTo.World
+			lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Plane
+			lv.PrimaryTangentAxis = Vector3.new(1, 0, 0)
+			lv.SecondaryTangentAxis = Vector3.new(0, 0, 1)
+			lv.MaxForce = 1e7
+			lv.Enabled = false
+			lv.Parent = hrp
+			ws.lv = lv
+		end
+	end,
+
+	stop = function()
+		cleanup("speed")
+		local _, hum = getChar()
+		if hum and ws.orig then hum.WalkSpeed = ws.orig end
+		ws.orig, ws.lv = nil, nil
+	end,
+
+	step = function(dt)
+		local c, hum, hrp = getChar()
+		if not (hum and hrp) then return end
+		local m, v = STATE.speed.method, STATE.speed.value
+		local dir = hum.MoveDirection
+		if m == 1 then
+			if hum.WalkSpeed ~= v then hum.WalkSpeed = v end
+		elseif m == 2 then
+			if dir.Magnitude > 0 then hrp.CFrame = hrp.CFrame + dir * v * dt end
+		elseif m == 3 then
+			if dir.Magnitude > 0 then
+				local y = hrp.AssemblyLinearVelocity.Y
+				hrp.AssemblyLinearVelocity = Vector3.new(dir.X * v, y, dir.Z * v)
+			end
+		elseif m == 4 then
+			if dir.Magnitude > 0 then c:TranslateBy(dir * v * dt) end
+		elseif m == 5 then
+			local lv = ws.lv
+			if lv and lv.Parent then
+				if dir.Magnitude > 0 then
+					lv.Enabled = true
+					lv.PlaneVelocity = Vector2.new(dir.X * v, dir.Z * v)
+				else
+					lv.Enabled = false
+				end
+			end
+		end
+	end,
+}
+
+----------------------------------------------------------------------
+-- JUMP
+----------------------------------------------------------------------
+local jp = {}
+
+local function doJump()
+	local _, hum, hrp = getChar()
+	if not (hum and hrp) then return end
+	local m, v = STATE.jump.method, STATE.jump.value
+	local grounded = hum.FloorMaterial ~= Enum.Material.Air
+	if (m == 3 and grounded) or m == 5 then
+		task.defer(function()
+			RunService.Heartbeat:Wait() -- let the humanoid apply its own jump first
+			if hrp and hrp.Parent then
+				local vel = hrp.AssemblyLinearVelocity
+				hrp.AssemblyLinearVelocity = Vector3.new(vel.X, v, vel.Z)
+			end
+		end)
+	elseif m == 4 and grounded then
+		hrp:ApplyImpulse(Vector3.new(0, v * hrp.AssemblyMass, 0))
+	end
+end
+
+F.jump = {
+	start = function()
+		local _, hum = getChar()
+		if not hum then return end
+		local m = STATE.jump.method
+		if m == 1 or m == 2 then
+			jp.useJP, jp.jp, jp.jh = hum.UseJumpPower, hum.JumpPower, hum.JumpHeight
+		else
+			track("jump", UIS.JumpRequest:Connect(doJump))
+		end
+	end,
+
+	stop = function()
+		cleanup("jump")
+		local _, hum = getChar()
+		if hum and jp.useJP ~= nil then
+			hum.UseJumpPower = jp.useJP
+			hum.JumpPower = jp.jp
+			hum.JumpHeight = jp.jh
+		end
+		jp.useJP, jp.jp, jp.jh = nil, nil, nil
+	end,
+
+	step = function()
+		local m, v = STATE.jump.method, STATE.jump.value
+		if m ~= 1 and m ~= 2 then return end
+		local _, hum = getChar()
+		if not hum then return end
+		if m == 1 then
+			if hum.UseJumpPower ~= true then hum.UseJumpPower = true end
+			if hum.JumpPower ~= v then hum.JumpPower = v end
+		else
+			if hum.UseJumpPower ~= false then hum.UseJumpPower = false end
+			if hum.JumpHeight ~= v then hum.JumpHeight = v end
+		end
+	end,
+}
+
+----------------------------------------------------------------------
+-- FLY
+----------------------------------------------------------------------
+local fl = { up = false, down = false }
+
+local function flyDir(hum)
+	local cam = workspace.CurrentCamera
+	local dir = hum.MoveDirection -- flat, already relative to the camera
+	local look = cam.CFrame.LookVector
+	local flat = Vector3.new(look.X, 0, look.Z)
+	local vert = (fl.up and 1 or 0) - (fl.down and 1 or 0)
+	if flat.Magnitude > 0.05 and dir.Magnitude > 0 then
+		-- pushing forward/back while looking up/down also moves you up/down
+		local f = dir:Dot(flat.Unit)
+		vert = vert + f * (look.Y / flat.Magnitude)
+	end
+	local d = dir + Vector3.new(0, vert, 0)
+	if d.Magnitude > 1 then d = d.Unit end
+	return d
+end
+
+local function face(pos)
+	-- full camera direction, including looking up/down
+	local look = workspace.CurrentCamera.CFrame.LookVector
+	local up = (math.abs(look.Y) > 0.99) and Vector3.new(0, 0, 1) or Vector3.new(0, 1, 0)
+	return CFrame.lookAt(pos, pos + look, up)
+end
+
+F.fly = {
+	start = function()
+		local c, hum, hrp = getChar()
+		if not (hum and hrp) then return end
+		local m = STATE.fly.method
+		if m == 1 then
+			local att = track("fly", Instance.new("Attachment"))
+			att.Parent = hrp
+			local lv = track("fly", Instance.new("LinearVelocity"))
+			lv.Attachment0 = att
+			lv.RelativeTo = Enum.ActuatorRelativeTo.World
+			lv.MaxForce = math.huge
+			lv.VectorVelocity = Vector3.zero
+			lv.Parent = hrp
+			local ao = track("fly", Instance.new("AlignOrientation"))
+			ao.Mode = Enum.OrientationAlignmentMode.OneAttachment
+			ao.Attachment0 = att
+			ao.MaxTorque = math.huge
+			ao.Responsiveness = 50
+			ao.CFrame = face(hrp.Position)
+			ao.Parent = hrp
+			fl.lv, fl.ao = lv, ao
+			hum.PlatformStand = true
+		end
+	end,
+
+	stop = function()
+		cleanup("fly")
+		fl.lv, fl.ao = nil, nil
+		fl.up, fl.down = false, false
+		local _, hum = getChar()
+		if hum then hum.PlatformStand = false end
+	end,
+
+	step = function(dt)
+		local c, hum, hrp = getChar()
+		if not (hum and hrp) then return end
+		local m, v = STATE.fly.method, STATE.fly.value
+		local d = flyDir(hum)
+		if m == 1 then
+			if fl.lv and fl.lv.Parent then
+				fl.lv.VectorVelocity = d * v
+				fl.ao.CFrame = face(hrp.Position)
+			end
+		elseif m == 2 then
+			hrp.CFrame = face(hrp.Position + d * v * dt)
+			hrp.AssemblyLinearVelocity = Vector3.zero
+		elseif m == 3 then
+			hrp.AssemblyLinearVelocity = d * v
+			hrp.CFrame = face(hrp.Position)
+		end
+	end,
+}
+
+----------------------------------------------------------------------
+-- NOCLIP
+----------------------------------------------------------------------
+local nc = { orig = {}, moved = {} }
+
+local function ncApply(m)
+	local c = lp.Character
+	if not c then return end
+	for _, p in ipairs(c:GetDescendants()) do
+		if p:IsA("BasePart") then
+			if not nc.orig[p] then nc.orig[p] = { p.CanCollide, p.CanTouch } end
+			if p.CanCollide then p.CanCollide = false end
+			if m == 3 and p.CanTouch then p.CanTouch = false end
+		end
+	end
+end
+
+-- Destroyer: parts near you go to ReplicatedStorage, and come back to their old parent when you are far
+local function ncRestore(p, info)
+	pcall(function()
+		local parent = info.parent
+		if parent and parent:IsDescendantOf(game) then p.Parent = parent else p.Parent = workspace end
+	end)
+end
+
+local function topY(p)
+	local cf, sz = p.CFrame, p.Size
+	return p.Position.Y
+		+ math.abs(cf.RightVector.Y) * sz.X / 2
+		+ math.abs(cf.UpVector.Y) * sz.Y / 2
+		+ math.abs(cf.LookVector.Y) * sz.Z / 2
+end
+
+local function destroyerStep()
+	local c, hum, hrp = getChar()
+	if not (hum and hrp) then return end
+	local r = STATE.noclip.value
+	if r <= 0 then r = 8 end
+	local pos = hrp.Position
+	local feetY = pos.Y - 3 -- approx. height of the soles of your feet
+
+	for p, info in pairs(nc.moved) do
+		if not p.Parent then
+			nc.moved[p] = nil
+		elseif (p.Position - pos).Magnitude > r + p.Size.Magnitude / 2 + 4 then
+			ncRestore(p, info)
+			nc.moved[p] = nil
+		end
+	end
+
+	local ex = {}
+	for _, pl in ipairs(Players:GetPlayers()) do
+		if pl.Character then table.insert(ex, pl.Character) end
+	end
+	local params = OverlapParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = ex
+	params.MaxParts = 200
+
+	-- whatever is directly under you is protected, whatever its height
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Exclude
+	rp.FilterDescendantsInstances = ex
+	local protected = {}
+	for _, off in ipairs({ Vector3.new(0, 0, 0), Vector3.new(2, 0, 0), Vector3.new(-2, 0, 0), Vector3.new(0, 0, 2), Vector3.new(0, 0, -2) }) do
+		local hit = workspace:Raycast(pos + off, Vector3.new(0, -10, 0), rp)
+		if hit and hit.Instance then protected[hit.Instance] = true end
+	end
+
+	for _, p in ipairs(workspace:GetPartBoundsInRadius(pos, r, params)) do
+		if not p:IsA("Terrain") and not nc.moved[p] and not protected[p] and topY(p) > feetY + 1.5 then
+			local model = p:FindFirstAncestorOfClass("Model")
+			if not (model and model:FindFirstChildOfClass("Humanoid")) then
+				nc.moved[p] = { parent = p.Parent }
+				p.Parent = ReplicatedStorage
+			end
+		end
+	end
+end
+
+F.noclip = {
+	start = function()
+		local m = STATE.noclip.method
+		if m == 1 or m == 3 then
+			track("noclip", RunService.Stepped:Connect(function()
+				ncApply(STATE.noclip.method)
+			end))
+		elseif m == 4 then
+			local _, _, hrp = getChar()
+			if not hrp then return end
+			nc.hrp, nc.anch = hrp, hrp.Anchored
+			hrp.Anchored = true
+		end
+	end,
+
+	stop = function()
+		cleanup("noclip")
+		for p, o in pairs(nc.orig) do
+			pcall(function()
+				if p and p.Parent then
+					p.CanCollide = o[1]
+					p.CanTouch = o[2]
+				end
+			end)
+		end
+		nc.orig = {}
+		for p, info in pairs(nc.moved) do ncRestore(p, info) end
+		nc.moved = {}
+		if nc.hrp then
+			pcall(function() nc.hrp.Anchored = nc.anch or false end)
+			nc.hrp, nc.anch = nil, nil
+		end
+		fl.up, fl.down = false, false
+	end,
+
+	step = function(dt)
+		local m = STATE.noclip.method
+		if m == 2 then destroyerStep() return end
+		if m ~= 4 then return end
+		local _, hum, hrp = getChar()
+		if not (hum and hrp) then return end
+		local v = STATE.noclip.value
+		local d = hum.MoveDirection + Vector3.new(0, (fl.up and 1 or 0) - (fl.down and 1 or 0), 0)
+		if d.Magnitude > 1 then d = d.Unit end
+		if d.Magnitude > 0 then hrp.CFrame = hrp.CFrame + d * v * dt end
+	end,
+}
+
+----------------------------------------------------------------------
+-- Main loop / inputs / respawn
+----------------------------------------------------------------------
+table.insert(conns, RunService.Heartbeat:Connect(function(dt)
+	for key, s in pairs(STATE) do
+		if s.on then pcall(F[key].step, dt) end
+	end
+end))
+
+table.insert(conns, UIS.InputBegan:Connect(function(i, gp)
+	if gp then return end
+	if i.KeyCode == Enum.KeyCode.E or i.KeyCode == Enum.KeyCode.Space then fl.up = true
+	elseif i.KeyCode == Enum.KeyCode.Q or i.KeyCode == Enum.KeyCode.LeftControl then fl.down = true end
+end))
+table.insert(conns, UIS.InputEnded:Connect(function(i)
+	if i.KeyCode == Enum.KeyCode.E or i.KeyCode == Enum.KeyCode.Space then fl.up = false
+	elseif i.KeyCode == Enum.KeyCode.Q or i.KeyCode == Enum.KeyCode.LeftControl then fl.down = false end
+end))
+
+table.insert(conns, lp.CharacterAdded:Connect(function(char)
+	char:WaitForChild("Humanoid", 10)
+	char:WaitForChild("HumanoidRootPart", 10)
+	task.wait(0.3)
+	for key, s in pairs(STATE) do
+		if s.on then
+			pcall(F[key].stop)
+			pcall(F[key].start)
+		end
+	end
+end))
+
+----------------------------------------------------------------------
+-- UI
+----------------------------------------------------------------------
+local C = {
+	bg = Color3.fromRGB(24, 24, 30), panel = Color3.fromRGB(34, 34, 42), btn = Color3.fromRGB(52, 52, 64),
+	accent = Color3.fromRGB(0, 140, 255), on = Color3.fromRGB(0, 190, 90), off = Color3.fromRGB(200, 55, 55),
+	text = Color3.fromRGB(235, 235, 240), sub = Color3.fromRGB(160, 160, 175),
+}
+
+local function mk(class, props, parent)
+	local o = Instance.new(class)
+	for k, v in pairs(props) do o[k] = v end
+	o.Parent = parent
+	return o
+end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "SpooferPanel"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+local okH, hui = pcall(function() return gethui and gethui() end)
+if okH and hui then
+	gui.Parent = hui
+else
+	pcall(function() gui.Parent = game:GetService("CoreGui") end)
+end
+if not gui.Parent then gui.Parent = lp:WaitForChild("PlayerGui") end
+
+local FULL_H = 310
+local W = 340
+local main = mk("Frame", {
+	Size = UDim2.new(0, W, 0, FULL_H), Position = UDim2.new(0.5, -W / 2, 0.25, 0),
+	BackgroundColor3 = C.bg, BorderSizePixel = 0, ClipsDescendants = true,
+}, gui)
+mk("UICorner", { CornerRadius = UDim.new(0, 8) }, main)
+
+local title = mk("Frame", { Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = C.panel, BorderSizePixel = 0 }, main)
+mk("UICorner", { CornerRadius = UDim.new(0, 8) }, title)
+mk("TextLabel", {
+	Size = UDim2.new(1, -70, 1, 0), Position = UDim2.new(0, 10, 0, 0), BackgroundTransparency = 1,
+	Text = "Spoofer Gui By C00LHACK", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 14,
+	TextXAlignment = Enum.TextXAlignment.Left,
+}, title)
+
+local body = mk("Frame", { Size = UDim2.new(1, 0, 1, -30), Position = UDim2.new(0, 0, 0, 30), BackgroundTransparency = 1 }, main)
+
+local collapsed = false
+local colBtn = mk("TextButton", {
+	Size = UDim2.new(0, 26, 0, 22), Position = UDim2.new(1, -60, 0, 4), BackgroundColor3 = C.btn,
+	Text = "-", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 16, BorderSizePixel = 0,
+}, title)
+mk("UICorner", { CornerRadius = UDim.new(0, 5) }, colBtn)
+colBtn.MouseButton1Click:Connect(function()
+	collapsed = not collapsed
+	body.Visible = not collapsed
+	main.Size = collapsed and UDim2.new(0, W, 0, 30) or UDim2.new(0, W, 0, FULL_H)
+	colBtn.Text = collapsed and "+" or "-"
+end)
+
+local closeBtn = mk("TextButton", {
+	Size = UDim2.new(0, 26, 0, 22), Position = UDim2.new(1, -30, 0, 4), BackgroundColor3 = C.off,
+	Text = "X", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 13, BorderSizePixel = 0,
+}, title)
+mk("UICorner", { CornerRadius = UDim.new(0, 5) }, closeBtn)
+
+-- dragging
+local dragging, dragStart, startPos
+title.InputBegan:Connect(function(i)
+	if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+		dragging, dragStart, startPos = true, i.Position, main.Position
+		i.Changed:Connect(function()
+			if i.UserInputState == Enum.UserInputState.End then dragging = false end
+		end)
+	end
+end)
+table.insert(conns, UIS.InputChanged:Connect(function(i)
+	if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+		local d = i.Position - dragStart
+		main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+	end
+end))
+
+local METHODS = {
+	speed = {
+		{ name = "1) WalkSpeed (loop)", default = 50,
+		  desc = "Sets Humanoid.WalkSpeed every frame, so it overrides the game if it resets it." },
+		{ name = "2) CFrame", default = 30,
+		  desc = "Moves the root part each frame in your move direction. Value = EXTRA studs/s on top of normal speed." },
+		{ name = "3) Velocity", default = 50,
+		  desc = "Sets the horizontal AssemblyLinearVelocity (Y untouched, so gravity and jumping still work)." },
+		{ name = "4) TranslateBy", default = 30,
+		  desc = "Character:TranslateBy every frame. Value = EXTRA studs/s on top of normal speed." },
+		{ name = "5) LinearVelocity", default = 50,
+		  desc = "Physics constraint (plane mode) that pushes you along the ground plane." },
+	},
+	jump = {
+		{ name = "1) JumpPower (loop)", default = 100,
+		  desc = "Forces UseJumpPower + JumpPower every frame." },
+		{ name = "2) JumpHeight (loop)", default = 30,
+		  desc = "Forces UseJumpPower=false and JumpHeight (studs) every frame." },
+		{ name = "3) Velocity Jump", default = 80,
+		  desc = "On jump (only when grounded) sets upward velocity to the value." },
+		{ name = "4) ApplyImpulse", default = 80,
+		  desc = "On jump (only when grounded) adds an upward impulse scaled by your mass." },
+		{ name = "5) Infinite Jump", default = 70,
+		  desc = "Every jump press sets upward velocity, even in the air." },
+	},
+	fly = {
+		{ name = "1) LinearVelocity + AlignOrientation", default = 60,
+		  desc = "Modern constraints. Move = joystick/WASD toward the camera direction. Up/Down = E/Space and Q/Ctrl, or the buttons." },
+		{ name = "2) CFrame Fly", default = 60,
+		  desc = "Moves a small step every frame and zeroes velocity. No physics objects are created." },
+		{ name = "3) Velocity Fly", default = 60,
+		  desc = "Sets AssemblyLinearVelocity every frame, which also cancels gravity." },
+	},
+	noclip = {
+		{ name = "1) CanCollide Loop (all parts)",
+		  desc = "Turns CanCollide off on every character part each physics step. Value not used." },
+		{ name = "2) Destroyer", default = 5,
+		  desc = "Parts within the radius (Value, studs) are moved to ReplicatedStorage while you are near, and put back in their original place when you move away. The part you stand on, and anything lower than about knee height, is never touched." },
+		{ name = "3) Ghost (CanCollide + CanTouch)",
+		  desc = "Also turns CanTouch off, so you do not trigger touch parts either. Value not used." },
+		{ name = "4) Anchored CFrame Walk", default = 40,
+		  desc = "Anchors the root part and moves it by CFrame, so nothing can block you. Value = studs/s. Up/Down = E/Space, Q/Ctrl, or the buttons." },
+	},
+}
+
+local pages, tabBtns = {}, {}
+
+local function setTab(key)
+	for k, p in pairs(pages) do p.Visible = (k == key) end
+	for k, b in pairs(tabBtns) do b.BackgroundColor3 = (k == key) and C.accent or C.btn end
+end
+
+local function makeTab(key, text, idx)
+	local b = mk("TextButton", {
+		Size = UDim2.new(0, 78, 0, 28), Position = UDim2.new(0, 8 + (idx - 1) * 82, 0, 2),
+		BackgroundColor3 = C.btn, Text = text, TextColor3 = C.text, Font = Enum.Font.GothamBold,
+		TextSize = 11, TextWrapped = true, BorderSizePixel = 0,
+	}, body)
+	mk("UICorner", { CornerRadius = UDim.new(0, 6) }, b)
+	b.MouseButton1Click:Connect(function() setTab(key) end)
+	tabBtns[key] = b
+end
+
+local function makePage(key)
+	local methods = METHODS[key]
+	local page = mk("Frame", {
+		Size = UDim2.new(1, 0, 0, 250), Position = UDim2.new(0, 0, 0, 32), BackgroundTransparency = 1, Visible = false,
+	}, body)
+	pages[key] = page
+
+	local list = mk("ScrollingFrame", {
+		Size = UDim2.new(1, -16, 0, 120), Position = UDim2.new(0, 8, 0, 0), BackgroundColor3 = C.panel,
+		BorderSizePixel = 0, ScrollBarThickness = 4, CanvasSize = UDim2.new(),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	}, page)
+	mk("UICorner", { CornerRadius = UDim.new(0, 6) }, list)
+	mk("UIListLayout", { Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder }, list)
+	mk("UIPadding", { PaddingTop = UDim.new(0, 3), PaddingLeft = UDim.new(0, 3), PaddingRight = UDim.new(0, 3), PaddingBottom = UDim.new(0, 3) }, list)
+
+	local desc = mk("TextLabel", {
+		Size = UDim2.new(1, -16, 0, 44), Position = UDim2.new(0, 8, 0, 124), BackgroundTransparency = 1,
+		TextColor3 = C.sub, Font = Enum.Font.Gotham, TextSize = 11, TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, Text = "",
+	}, page)
+
+	mk("TextLabel", {
+		Size = UDim2.new(0, 60, 0, 28), Position = UDim2.new(0, 8, 0, 172), BackgroundTransparency = 1,
+		Text = "Value:", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}, page)
+	local box = mk("TextBox", {
+		Size = UDim2.new(0, 110, 0, 28), Position = UDim2.new(0, 64, 0, 172), BackgroundColor3 = C.panel,
+		Text = "", TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 13, BorderSizePixel = 0,
+		ClearTextOnFocus = false,
+	}, page)
+	mk("UICorner", { CornerRadius = UDim.new(0, 6) }, box)
+
+	local toggle = mk("TextButton", {
+		Size = UDim2.new(1, -16, 0, 34), Position = UDim2.new(0, 8, 0, 208), BackgroundColor3 = C.off,
+		Text = "OFF", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 14, BorderSizePixel = 0,
+	}, page)
+	mk("UICorner", { CornerRadius = UDim.new(0, 6) }, toggle)
+
+	local holdBtns = {}
+	if key == "fly" or key == "noclip" then
+		local function hold(text, x, field)
+			local b = mk("TextButton", {
+				Size = UDim2.new(0, 64, 0, 34), Position = UDim2.new(0, x, 0, 208), BackgroundColor3 = C.btn,
+				Text = text, TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 14, BorderSizePixel = 0,
+			}, page)
+			mk("UICorner", { CornerRadius = UDim.new(0, 6) }, b)
+			b.MouseButton1Down:Connect(function() fl[field] = true end)
+			b.MouseButton1Up:Connect(function() fl[field] = false end)
+			b.MouseLeave:Connect(function() fl[field] = false end)
+			table.insert(holdBtns, b)
+		end
+		hold("UP", 154, "up")
+		hold("DOWN", 222, "down")
+	end
+
+	-- UP/DOWN: always shown in Fly; in Noclip only while "Anchored CFrame Walk" is selected AND turned ON
+	local function updateExtras()
+		if #holdBtns == 0 then return end
+		local s = STATE[key]
+		local show = (key == "fly") or (s.on and s.method == 4)
+		for _, b in ipairs(holdBtns) do b.Visible = show end
+		toggle.Size = show and UDim2.new(0, 140, 0, 34) or UDim2.new(1, -16, 0, 34)
+		if not show then fl.up, fl.down = false, false end
+	end
+
+	local mbtns = {}
+	local function select(i)
+		local s = STATE[key]
+		s.method = i
+		for j, b in ipairs(mbtns) do b.BackgroundColor3 = (j == i) and C.accent or C.btn end
+		desc.Text = methods[i].desc
+		if methods[i].default then
+			s.value = methods[i].default
+			box.Text = tostring(s.value)
+			box.TextEditable = true
+		else
+			s.value = 0
+			box.Text = "-"
+			box.TextEditable = false
+		end
+		if s.on then
+			pcall(F[key].stop)
+			pcall(F[key].start)
+		end
+		updateExtras()
+	end
+
+	for i, m in ipairs(methods) do
+		local b = mk("TextButton", {
+			Size = UDim2.new(1, -6, 0, 26), BackgroundColor3 = C.btn, Text = m.name, TextColor3 = C.text,
+			Font = Enum.Font.Gotham, TextSize = 12, BorderSizePixel = 0, LayoutOrder = i,
+			TextXAlignment = Enum.TextXAlignment.Left,
+		}, list)
+		mk("UICorner", { CornerRadius = UDim.new(0, 5) }, b)
+		mk("UIPadding", { PaddingLeft = UDim.new(0, 8) }, b)
+		b.MouseButton1Click:Connect(function() select(i) end)
+		mbtns[i] = b
+	end
+
+	box.FocusLost:Connect(function()
+		if not box.TextEditable then return end
+		local n = tonumber(box.Text)
+		if n then STATE[key].value = n else box.Text = tostring(STATE[key].value) end
+	end)
+
+	toggle.MouseButton1Click:Connect(function()
+		local s = STATE[key]
+		s.on = not s.on
+		if s.on then pcall(F[key].start) else pcall(F[key].stop) end
+		toggle.Text = s.on and "ON" or "OFF"
+		toggle.BackgroundColor3 = s.on and C.on or C.off
+		updateExtras()
+	end)
+
+	select(1)
+end
+
+makeTab("speed", "Speed Spoofer", 1)
+makeTab("jump", "JumpPower Spoofer", 2)
+makeTab("fly", "Fly Spoofer", 3)
+makeTab("noclip", "Noclip Spoofer", 4)
+makePage("speed")
+makePage("jump")
+makePage("fly")
+makePage("noclip")
+setTab("speed")
+
+----------------------------------------------------------------------
+-- Cleanup
+----------------------------------------------------------------------
+local function fullCleanup()
+	for key, s in pairs(STATE) do
+		if s.on then s.on = false; pcall(F[key].stop) end
+	end
+	for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
+	pcall(function() gui:Destroy() end)
+	env.SpooferCleanup = nil
+end
+env.SpooferCleanup = fullCleanup
+closeBtn.MouseButton1Click:Connect(fullCleanup)
