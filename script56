@@ -1,0 +1,409 @@
+-- ===== سرویس‌ها =====
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+
+-- ===== پاک‌سازی نسخه قبلی (اگه اسکریپت چندبار اجرا شد) =====
+do
+	local old = _G.PunchPanelCleanup
+	if old then
+		pcall(old)
+		_G.PunchPanelCleanup = nil
+	end
+
+	-- محض احتیاط: اگه چیزی از نسخه قبلی مونده باشه
+	local pg = player:FindFirstChild("PlayerGui")
+	local oldGui = pg and pg:FindFirstChild("PunchPanel")
+	if oldGui then oldGui:Destroy() end
+end
+
+-- ===== تنظیمات =====
+local IDS = {
+	Idle  = "rbxassetid://128326051752264",
+	Walk  = "rbxassetid://111472790147506",
+	Jump  = "rbxassetid://97170520",
+	Punch = "rbxassetid://134954848507647",
+}
+
+local ShoveForce   = 3000   -- شدت انرژی رو به جلو
+local PushDuration = 0.5    -- مدت فعال بودن
+local COOLDOWN     = 0.7    -- فاصله بین دو مشت
+local BTN_COOLDOWN = 0.35   -- کول‌دان دکمه‌های پنل (جلوگیری از کلیک دوبل اشتباهی)
+
+local PANEL_W        = 220
+local TITLE_H        = 38
+local BODY_H         = 92
+local EXPANDED_H     = TITLE_H + BODY_H   -- 130
+
+-- ===== وضعیت =====
+local alive = true
+local panelOn = false
+local originalAnims = {}
+local punchTrack = nil
+local lastPunch = 0
+local isShoving = false
+local connections = {}   -- همه کانکشن‌ها اینجا ذخیره میشن تا موقع پاک‌سازی قطع بشن
+
+local function track(conn)
+	table.insert(connections, conn)
+	return conn
+end
+
+-- ===== رابط کاربری =====
+local gui = Instance.new("ScreenGui")
+gui.Name = "PunchPanel"
+gui.ResetOnSpawn = false
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local frame = Instance.new("Frame")
+frame.Name = "Main"
+frame.Size = UDim2.new(0, PANEL_W, 0, EXPANDED_H)
+frame.AnchorPoint = Vector2.new(0.5, 0)               -- لنگر از بالا-وسط
+frame.Position = UDim2.new(0.5, 0, 0.5, -EXPANDED_H / 2) -- وسط صفحه
+frame.BackgroundColor3 = Color3.fromRGB(24, 24, 30)
+frame.BorderSizePixel = 0
+frame.ClipsDescendants = true
+frame.Parent = gui
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 14)
+
+local frameStroke = Instance.new("UIStroke")
+frameStroke.Color = Color3.fromRGB(70, 70, 90)
+frameStroke.Thickness = 1.5
+frameStroke.Parent = frame
+
+-- نوار تایتل (برای کشیدن پنل)
+local titleBar = Instance.new("Frame")
+titleBar.Name = "TitleBar"
+titleBar.Size = UDim2.new(1, 0, 0, TITLE_H)
+titleBar.BackgroundColor3 = Color3.fromRGB(40, 40, 58)
+titleBar.BorderSizePixel = 0
+titleBar.Parent = frame
+
+local titleGradient = Instance.new("UIGradient")
+titleGradient.Color = ColorSequence.new(Color3.fromRGB(95, 70, 200), Color3.fromRGB(50, 50, 90))
+titleGradient.Rotation = 0
+titleGradient.Parent = titleBar
+
+local title = Instance.new("TextLabel")
+title.BackgroundTransparency = 1
+title.Size = UDim2.new(1, -50, 1, 0)
+title.Position = UDim2.new(0, 14, 0, 0)
+title.Font = Enum.Font.GothamBold
+title.Text = "Nightmare Puncher"
+title.TextColor3 = Color3.new(1, 1, 1)
+title.TextSize = 16
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = titleBar
+
+-- دکمه Collapse / Expand
+local minBtn = Instance.new("TextButton")
+minBtn.Name = "CollapseBtn"
+minBtn.Size = UDim2.new(0, 26, 0, 26)
+minBtn.Position = UDim2.new(1, -34, 0, 6)
+minBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+minBtn.BackgroundTransparency = 0.85
+minBtn.Text = "–"
+minBtn.TextColor3 = Color3.new(1, 1, 1)
+minBtn.Font = Enum.Font.GothamBold
+minBtn.TextSize = 18
+minBtn.AutoButtonColor = true
+minBtn.ZIndex = 2
+minBtn.Parent = titleBar
+Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 8)
+
+-- بدنه پنل (ارتفاع ثابت، با فریم کش نمیاد)
+local body = Instance.new("Frame")
+body.Name = "Body"
+body.BackgroundTransparency = 1
+body.Size = UDim2.new(1, 0, 0, BODY_H)
+body.Position = UDim2.new(0, 0, 0, TITLE_H)
+body.Parent = frame
+
+local statusLabel = Instance.new("TextLabel")
+statusLabel.BackgroundTransparency = 1
+statusLabel.Size = UDim2.new(1, -28, 0, 20)
+statusLabel.Position = UDim2.new(0, 14, 0, 10)
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.Text = "Status: Disabled"
+statusLabel.TextColor3 = Color3.fromRGB(170, 170, 190)
+statusLabel.TextSize = 13
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.Parent = body
+
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Name = "ToggleBtn"
+toggleBtn.Size = UDim2.new(1, -28, 0, 44)
+toggleBtn.Position = UDim2.new(0, 14, 0, 36)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(185, 55, 65)
+toggleBtn.Text = "OFF"
+toggleBtn.TextColor3 = Color3.new(1, 1, 1)
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.TextSize = 22
+toggleBtn.AutoButtonColor = false
+toggleBtn.Parent = body
+Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 10)
+
+local btnStroke = Instance.new("UIStroke")
+btnStroke.Color = Color3.fromRGB(255, 255, 255)
+btnStroke.Transparency = 0.8
+btnStroke.Thickness = 1
+btnStroke.Parent = toggleBtn
+
+local function tween(obj, props, t)
+	local tw = TweenService:Create(obj, TweenInfo.new(t or 0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props)
+	tw:Play()
+	return tw
+end
+
+-- ===== کشیدن پنل (موس و موبایل) =====
+do
+	local dragging, dragStart, startPos
+	track(titleBar.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = frame.Position
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					dragging = false
+				end
+			end)
+		end
+	end))
+	track(UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch) then
+			local d = input.Position - dragStart
+			frame.Position = UDim2.new(
+				startPos.X.Scale, startPos.X.Offset + d.X,
+				startPos.Y.Scale, startPos.Y.Offset + d.Y
+			)
+		end
+	end))
+end
+
+-- ===== Collapse / Expand =====
+local collapsed = false
+local collapseTween = nil
+local lastCollapseClick = 0
+
+track(minBtn.MouseButton1Click:Connect(function()
+	if tick() - lastCollapseClick < BTN_COOLDOWN then return end
+	lastCollapseClick = tick()
+
+	collapsed = not collapsed
+	minBtn.Text = collapsed and "+" or "–"
+
+	-- اگه انیمیشن قبلی هنوز در حال اجراست، قطعش کن
+	if collapseTween then collapseTween:Cancel() end
+
+	if collapsed then
+		collapseTween = tween(frame, {Size = UDim2.new(0, PANEL_W, 0, TITLE_H)}, 0.25)
+		local tw = collapseTween
+		tw.Completed:Connect(function(state)
+			-- بدنه فقط وقتی کامل جمع شد مخفی میشه
+			if state == Enum.PlaybackState.Completed and collapsed then
+				body.Visible = false
+			end
+		end)
+	else
+		body.Visible = true -- قبل از باز شدن نمایان بشه
+		collapseTween = tween(frame, {Size = UDim2.new(0, PANEL_W, 0, EXPANDED_H)}, 0.25)
+	end
+end))
+
+-- ===== انیمیشن‌ها =====
+local function setAnim(container, name, id)
+	local a = container and container:FindFirstChild(name)
+	if a and a:IsA("Animation") then
+		if originalAnims[a] == nil then
+			originalAnims[a] = a.AnimationId
+		end
+		a.AnimationId = id
+	end
+end
+
+-- ریست کردن اسکریپت Animate تا انیمیشن جدید همون لحظه (بدون راه رفتن) پخش بشه
+local function reloadAnimate(char)
+	local animate = char and char:FindFirstChild("Animate")
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local animator = hum and hum:FindFirstChildOfClass("Animator")
+
+	if animator then
+		for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
+			t:Stop(0)
+		end
+	end
+	if animate then
+		animate.Disabled = true
+		task.wait()
+		animate.Disabled = false
+	end
+end
+
+local function applyAnimations(char)
+	local animate = char:WaitForChild("Animate", 5)
+	if not animate then return end
+
+	setAnim(animate:FindFirstChild("idle"), "Animation1", IDS.Idle)
+	setAnim(animate:FindFirstChild("idle"), "Animation2", IDS.Idle)
+	setAnim(animate:FindFirstChild("walk"), "WalkAnim", IDS.Walk)
+	setAnim(animate:FindFirstChild("run"),  "RunAnim",  IDS.Walk)
+	setAnim(animate:FindFirstChild("jump"), "JumpAnim", IDS.Jump)
+
+	reloadAnimate(char)
+end
+
+local function restoreAnimations()
+	for anim, id in pairs(originalAnims) do
+		if anim and anim.Parent then
+			anim.AnimationId = id
+		end
+	end
+	originalAnims = {}
+	reloadAnimate(player.Character)
+end
+
+-- ===== پرتاب (انرژی لحظه‌ای بدون جابه‌جایی) =====
+local function fling()
+	if isShoving then return end
+	local Character = player.Character
+	if not Character then return end
+
+	isShoving = true
+	local startTime = tick()
+	local connection
+
+	connection = RunService.Heartbeat:Connect(function()
+		if not alive or tick() - startTime >= PushDuration then
+			connection:Disconnect()
+			isShoving = false
+			return
+		end
+
+		local currentRoot = Character:FindFirstChild("HumanoidRootPart")
+		if currentRoot then
+			local Velocity = currentRoot.AssemblyLinearVelocity
+
+			currentRoot.AssemblyLinearVelocity = currentRoot.CFrame.LookVector * ShoveForce
+
+			RunService.RenderStepped:Wait()
+			currentRoot.AssemblyLinearVelocity = Velocity
+
+			RunService.Stepped:Wait()
+			currentRoot.AssemblyLinearVelocity = Velocity
+		end
+	end)
+end
+
+-- ===== ابزار Punch =====
+local function punch()
+	if tick() - lastPunch < COOLDOWN then return end
+	lastPunch = tick()
+
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local animator = hum and hum:FindFirstChildOfClass("Animator")
+	if not animator then return end
+
+	if not punchTrack then
+		local anim = Instance.new("Animation")
+		anim.AnimationId = IDS.Punch
+		punchTrack = animator:LoadAnimation(anim)
+		punchTrack.Priority = Enum.AnimationPriority.Action
+	end
+	punchTrack:Play()
+
+	fling() -- همیشه همزمان با دکمه اصلی فعاله
+end
+
+local function giveTool()
+	local backpack = player:WaitForChild("Backpack")
+	local char = player.Character
+	if backpack:FindFirstChild("Punch") or (char and char:FindFirstChild("Punch")) then return end
+
+	local tool = Instance.new("Tool")
+	tool.Name = "Punch"
+	tool.RequiresHandle = false -- بدون Handle
+	tool.CanBeDropped = false
+	tool.Activated:Connect(punch)
+	tool.Parent = backpack
+end
+
+local function removeTool()
+	local backpack = player:FindFirstChild("Backpack")
+	if backpack and backpack:FindFirstChild("Punch") then
+		backpack.Punch:Destroy()
+	end
+	if player.Character and player.Character:FindFirstChild("Punch") then
+		player.Character.Punch:Destroy()
+	end
+end
+
+-- ===== دکمه اصلی =====
+local busy = false
+local lastToggleClick = 0
+track(toggleBtn.MouseButton1Click:Connect(function()
+	if busy then return end
+	if tick() - lastToggleClick < BTN_COOLDOWN then return end
+	lastToggleClick = tick()
+	busy = true
+
+	panelOn = not panelOn
+	toggleBtn.Text = panelOn and "ON" or "OFF"
+	statusLabel.Text = panelOn and "Status: Active  •  Punch ready" or "Status: Disabled"
+	tween(toggleBtn, {
+		BackgroundColor3 = panelOn and Color3.fromRGB(45, 170, 85) or Color3.fromRGB(185, 55, 65)
+	})
+	tween(frameStroke, {
+		Color = panelOn and Color3.fromRGB(45, 170, 85) or Color3.fromRGB(70, 70, 90)
+	})
+
+	if panelOn then
+		giveTool()
+		if player.Character then applyAnimations(player.Character) end
+	else
+		removeTool()
+		restoreAnimations()
+	end
+
+	busy = false
+end))
+
+-- ===== بعد از مرگ/ریسپاون =====
+track(player.CharacterAdded:Connect(function(char)
+	punchTrack = nil
+	originalAnims = {}
+	isShoving = false
+	if panelOn then
+		giveTool()
+		applyAnimations(char)
+	end
+end))
+
+-- ===== تابع پاک‌سازی (برای اجرای بعدی اسکریپت) =====
+_G.PunchPanelCleanup = function()
+	alive = false
+
+	for _, c in ipairs(connections) do
+		pcall(function() c:Disconnect() end)
+	end
+	table.clear(connections)
+
+	if punchTrack then
+		pcall(function() punchTrack:Stop(0) end)
+		punchTrack = nil
+	end
+
+	if panelOn then
+		panelOn = false
+		removeTool()
+		restoreAnimations()
+	end
+
+	if gui then gui:Destroy() end
+end
