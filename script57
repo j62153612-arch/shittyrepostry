@@ -1,0 +1,541 @@
+-- Pixel Text Builder (F3X / Building Tools SyncAPI)
+-- نوع اسکریپت: LocalScript  (بذارش توی StarterPlayerScripts یا StarterGui)
+-- شرط: بازیکن باید ابزار "Building Tools" (F3X) داشته باشه
+
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+-- ====== تنظیمات ======
+local PIXEL_SIZE = 0.5          -- اندازه هر پیکسل (استاد)
+local DISTANCE = 15             -- فاصله متن از بازیکن
+local HEIGHT_OFFSET = 2         -- ارتفاع پایین متن نسبت به مرکز بازیکن
+local COLOR = Color3.fromRGB(255, 255, 255)
+local THREADS = 40              -- only used as a fallback if Clone fails
+
+-- ====== فونت ۵x۷ ======
+local FONT = {
+	A={".###.","#...#","#...#","#####","#...#","#...#","#...#"},
+	B={"####.","#...#","#...#","####.","#...#","#...#","####."},
+	C={".####","#....","#....","#....","#....","#....",".####"},
+	D={"####.","#...#","#...#","#...#","#...#","#...#","####."},
+	E={"#####","#....","#....","####.","#....","#....","#####"},
+	F={"#####","#....","#....","####.","#....","#....","#...."},
+	G={".####","#....","#....","#.###","#...#","#...#",".###."},
+	H={"#...#","#...#","#...#","#####","#...#","#...#","#...#"},
+	I={"#####","..#..","..#..","..#..","..#..","..#..","#####"},
+	J={"..###","...#.","...#.","...#.","...#.","#..#.",".##.."},
+	K={"#...#","#..#.","#.#..","##...","#.#..","#..#.","#...#"},
+	L={"#....","#....","#....","#....","#....","#....","#####"},
+	M={"#...#","##.##","#.#.#","#.#.#","#...#","#...#","#...#"},
+	N={"#...#","##..#","#.#.#","#..##","#...#","#...#","#...#"},
+	O={".###.","#...#","#...#","#...#","#...#","#...#",".###."},
+	P={"####.","#...#","#...#","####.","#....","#....","#...."},
+	Q={".###.","#...#","#...#","#...#","#.#.#","#..#.",".##.#"},
+	R={"####.","#...#","#...#","####.","#.#..","#..#.","#...#"},
+	S={".####","#....","#....",".###.","....#","....#","####."},
+	T={"#####","..#..","..#..","..#..","..#..","..#..","..#.."},
+	U={"#...#","#...#","#...#","#...#","#...#","#...#",".###."},
+	V={"#...#","#...#","#...#","#...#","#...#",".#.#.","..#.."},
+	W={"#...#","#...#","#...#","#.#.#","#.#.#","##.##","#...#"},
+	X={"#...#","#...#",".#.#.","..#..",".#.#.","#...#","#...#"},
+	Y={"#...#","#...#",".#.#.","..#..","..#..","..#..","..#.."},
+	Z={"#####","....#","...#.","..#..",".#...","#....","#####"},
+	["0"]={".###.","#...#","#..##","#.#.#","##..#","#...#",".###."},
+	["1"]={"..#..",".##..","..#..","..#..","..#..","..#..",".###."},
+	["2"]={".###.","#...#","....#","...#.","..#..",".#...","#####"},
+	["3"]={"####.","....#","....#",".###.","....#","....#","####."},
+	["4"]={"#...#","#...#","#...#","#####","....#","....#","....#"},
+	["5"]={"#####","#....","####.","....#","....#","#...#",".###."},
+	["6"]={".###.","#....","#....","####.","#...#","#...#",".###."},
+	["7"]={"#####","....#","...#.","..#..",".#...",".#...",".#..."},
+	["8"]={".###.","#...#","#...#",".###.","#...#","#...#",".###."},
+	["9"]={".###.","#...#","#...#",".####","....#","....#",".###."},
+	["!"]={"..#..","..#..","..#..","..#..","..#..",".....","..#.."},
+	["?"]={".###.","#...#","....#","...#.","..#..",".....","..#.."},
+	["."]={".....",".....",".....",".....",".....",".....","..#.."},
+	["-"]={".....",".....",".....","#####",".....",".....","....."},
+	[":"]={".....","..#..",".....",".....",".....","..#..","....."},
+}
+local COLS, ROWS, GAP = 5, 7, 1
+local SPACE_W = 3
+
+-- ====== پیدا کردن SyncAPI ======
+-- در F3X اصلی، SyncAPI یک Folder است و RemoteFunction واقعی داخلش
+-- با اسم ServerEndpoint قرار دارد. هر دو حالت اینجا پشتیبانی می‌شود.
+local function resolveEndpoint(obj)
+	if not obj then return nil end
+	if obj:IsA("RemoteFunction") then return obj end
+	local ep = obj:FindFirstChild("ServerEndpoint")
+	if ep and ep:IsA("RemoteFunction") then return ep end
+	for _, d in ipairs(obj:GetDescendants()) do
+		if d:IsA("RemoteFunction") then return d end
+	end
+	return nil
+end
+
+local function findSyncAPI()
+	local containers = { player.Character, player:FindFirstChildOfClass("Backpack") }
+	for _, c in ipairs(containers) do
+		if c then
+			local tool = c:FindFirstChild("Building Tools")
+			if tool then
+				local ep = resolveEndpoint(tool:FindFirstChild("SyncAPI"))
+				if ep then return ep end
+			end
+			for _, d in ipairs(c:GetDescendants()) do
+				if d.Name == "SyncAPI" then
+					local ep = resolveEndpoint(d)
+					if ep then return ep end
+				end
+			end
+		end
+	end
+	return nil
+end
+
+-- ====== GUI ======
+local gui = Instance.new("ScreenGui")
+gui.Name = "PixelTextBuilder"
+gui.ResetOnSpawn = false
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.fromOffset(300, 275)
+frame.Position = UDim2.new(0.5, -150, 0.5, -137)
+frame.BackgroundColor3 = Color3.fromRGB(30, 30, 36)
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Draggable = true
+frame.Parent = gui
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 30)
+title.BackgroundTransparency = 1
+title.Text = "C00LHACK Text Builder"
+title.TextColor3 = Color3.new(1, 1, 1)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 16
+title.Parent = frame
+
+local box = Instance.new("TextBox")
+box.Size = UDim2.new(1, -20, 0, 36)
+box.Position = UDim2.fromOffset(10, 38)
+box.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+box.TextColor3 = Color3.new(1, 1, 1)
+box.PlaceholderText = "Type text here..."
+box.PlaceholderColor3 = Color3.fromRGB(150, 150, 160)
+box.Text = ""
+box.ClearTextOnFocus = false
+box.Font = Enum.Font.Gotham
+box.TextSize = 16
+box.Parent = frame
+Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
+
+-- ====== انتخاب رنگ ======
+local currentColor = COLOR
+
+local hexBox = Instance.new("TextBox")
+hexBox.Size = UDim2.fromOffset(90, 28)
+hexBox.Position = UDim2.fromOffset(10, 84)
+hexBox.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+hexBox.TextColor3 = Color3.new(1, 1, 1)
+hexBox.PlaceholderText = "HEX"
+hexBox.PlaceholderColor3 = Color3.fromRGB(150, 150, 160)
+hexBox.Text = ""
+hexBox.ClearTextOnFocus = false
+hexBox.Font = Enum.Font.Gotham
+hexBox.TextSize = 14
+hexBox.Parent = frame
+Instance.new("UICorner", hexBox).CornerRadius = UDim.new(0, 6)
+
+local preview = Instance.new("Frame")
+preview.Size = UDim2.fromOffset(28, 28)
+preview.Position = UDim2.fromOffset(106, 84)
+preview.BorderSizePixel = 0
+preview.Parent = frame
+Instance.new("UICorner", preview).CornerRadius = UDim.new(0, 6)
+
+local function setColor(c)
+	currentColor = c
+	preview.BackgroundColor3 = c
+	hexBox.Text = c:ToHex():upper()
+end
+
+hexBox.FocusLost:Connect(function()
+	local hex = hexBox.Text:gsub("[#%s]", "")
+	local ok, c = pcall(Color3.fromHex, hex)
+	if ok and c then
+		setColor(c)
+	else
+		hexBox.Text = currentColor:ToHex():upper() -- ورودی نامعتبر: برگرد به رنگ قبلی
+	end
+end)
+
+local SWATCHES = {
+	"FFFFFF", "FF3B30", "FF9500", "FFE000", "34C759", "0A84FF",
+}
+for i, hex in ipairs(SWATCHES) do
+	local sw = Instance.new("TextButton")
+	sw.Size = UDim2.fromOffset(22, 22)
+	sw.Position = UDim2.fromOffset(142 + (i - 1) * 24, 87)
+	sw.BackgroundColor3 = Color3.fromHex(hex)
+	sw.Text = ""
+	sw.AutoButtonColor = true
+	sw.Parent = frame
+	Instance.new("UICorner", sw).CornerRadius = UDim.new(1, 0)
+	sw.MouseButton1Click:Connect(function() setColor(Color3.fromHex(hex)) end)
+end
+setColor(COLOR)
+
+-- ====== تنظیمات عددی (سایز، ضخامت، فاصله، ارتفاع) ======
+local function makeSetting(labelText, x, y, getValue, setValue, minV, maxV)
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.fromOffset(62, 28)
+	lbl.Position = UDim2.fromOffset(x, y)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = labelText
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.TextColor3 = Color3.fromRGB(190, 190, 200)
+	lbl.Font = Enum.Font.Gotham
+	lbl.TextSize = 13
+	lbl.Parent = frame
+
+	local tb = Instance.new("TextBox")
+	tb.Size = UDim2.fromOffset(70, 28)
+	tb.Position = UDim2.fromOffset(x + 66, y)
+	tb.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+	tb.TextColor3 = Color3.new(1, 1, 1)
+	tb.ClearTextOnFocus = false
+	tb.Font = Enum.Font.Gotham
+	tb.TextSize = 14
+	tb.Text = tostring(getValue())
+	tb.Parent = frame
+	Instance.new("UICorner", tb).CornerRadius = UDim.new(0, 6)
+
+	tb.FocusLost:Connect(function()
+		local n = tonumber(tb.Text)
+		if n then
+			n = math.clamp(n, minV, maxV)
+			setValue(n)
+		end
+		tb.Text = tostring(getValue()) -- نامعتبر بود؟ مقدار قبلی برمی‌گردد
+	end)
+end
+
+makeSetting("Size", 10, 120,
+	function() return PIXEL_SIZE end, function(v) PIXEL_SIZE = v end, 0.05, 5)
+makeSetting("Distance", 154, 120,
+	function() return DISTANCE end, function(v) DISTANCE = v end, 0, 300)
+makeSetting("Height", 10, 154,
+	function() return HEIGHT_OFFSET end, function(v) HEIGHT_OFFSET = v end, -100, 300)
+
+local buildBtn = Instance.new("TextButton")
+buildBtn.Size = UDim2.new(0.5, -15, 0, 36)
+buildBtn.Position = UDim2.fromOffset(10, 190)
+buildBtn.BackgroundColor3 = Color3.fromRGB(60, 160, 90)
+buildBtn.Text = "Build"
+buildBtn.TextColor3 = Color3.new(1, 1, 1)
+buildBtn.Font = Enum.Font.GothamBold
+buildBtn.TextSize = 16
+buildBtn.Parent = frame
+Instance.new("UICorner", buildBtn).CornerRadius = UDim.new(0, 6)
+
+local clearBtn = buildBtn:Clone()
+clearBtn.Position = UDim2.new(0.5, 5, 0, 190)
+clearBtn.BackgroundColor3 = Color3.fromRGB(180, 70, 70)
+clearBtn.Text = "Clear Texts"
+clearBtn.Parent = frame
+
+local status = Instance.new("TextLabel")
+status.Size = UDim2.new(1, -20, 0, 30)
+status.Position = UDim2.fromOffset(10, 238)
+status.BackgroundTransparency = 1
+status.Text = "Ready"
+status.TextColor3 = Color3.fromRGB(190, 190, 200)
+status.Font = Enum.Font.Gotham
+status.TextSize = 14
+status.Parent = frame
+
+-- ====== Collapse / Close ======
+local FULL_HEIGHT, COLLAPSED_HEIGHT = 275, 30
+frame.ClipsDescendants = true
+
+local function makeTitleButton(text, xOffset, color)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.fromOffset(24, 22)
+	b.Position = UDim2.new(1, xOffset, 0, 4)
+	b.BackgroundColor3 = color
+	b.Text = text
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 14
+	b.Parent = frame
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
+	return b
+end
+
+local minBtn = makeTitleButton("-", -56, Color3.fromRGB(70, 70, 85))
+local closeBtn = makeTitleButton("X", -28, Color3.fromRGB(190, 60, 60))
+
+local body = {}
+for _, child in ipairs(frame:GetChildren()) do
+	if child:IsA("GuiObject") and child ~= title and child ~= minBtn and child ~= closeBtn then
+		table.insert(body, child)
+	end
+end
+
+local collapsed = false
+minBtn.MouseButton1Click:Connect(function()
+	collapsed = not collapsed
+	for _, obj in ipairs(body) do obj.Visible = not collapsed end
+	frame.Size = UDim2.fromOffset(300, collapsed and COLLAPSED_HEIGHT or FULL_HEIGHT)
+	minBtn.Text = collapsed and "+" or "-"
+end)
+
+closeBtn.MouseButton1Click:Connect(function()
+	gui:Destroy()
+end)
+
+-- ====== منطق ساخت ======
+local busy = false
+local builtParts = {}
+
+local function setLockedAll(api, parts, locked)
+	for i = 1, #parts, 200 do
+		local chunk = {}
+		for j = i, math.min(i + 199, #parts) do chunk[#chunk + 1] = parts[j] end
+		local ok, err = pcall(function() api:InvokeServer("SetLocked", chunk, locked) end)
+		if not ok then warn("[PixelText] SetLocked error:", tostring(err)) end
+	end
+end
+
+local function removeAll(api)
+	local function alive()
+		local list = {}
+		for _, part in ipairs(builtParts) do
+			if typeof(part) == "Instance" and part.Parent then
+				list[#list + 1] = part
+			end
+		end
+		return list
+	end
+
+	-- Remove in chunks; retry once for anything that is still alive
+	for _ = 1, 2 do
+		local list = alive()
+		if #list == 0 then break end
+		setLockedAll(api, list, false)
+		for i = 1, #list, 200 do
+			local chunk = {}
+			for j = i, math.min(i + 199, #list) do chunk[#chunk + 1] = list[j] end
+			local ok, err = pcall(function() api:InvokeServer("Remove", chunk) end)
+			if not ok then warn("[PixelText] Remove error:", tostring(err)) end
+		end
+		task.wait(0.3)
+	end
+
+	builtParts = alive()
+	return #builtParts
+end
+
+local function buildInner(text)
+	if busy then return end
+	text = string.upper(text)
+	if text:gsub("%s", "") == "" then
+		status.Text = "Enter some text first"
+		return
+	end
+
+	local api = findSyncAPI()
+	if not api then
+		status.Text = "Building Tools (SyncAPI) not found!"
+		return
+	end
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+
+	busy = true
+	status.Text = "Building..."
+
+	-- if a text was built before, remove it first
+	if #builtParts > 0 then
+		status.Text = "Removing previous text..."
+		removeAll(api)
+		status.Text = "Building..."
+	end
+
+	-- محاسبه عرض کل
+	local totalCols = 0
+	for i = 1, #text do
+		local ch = text:sub(i, i)
+		totalCols += (ch == " " and SPACE_W or COLS) + GAP
+	end
+	totalCols -= GAP
+	local totalWidth = totalCols * PIXEL_SIZE
+
+	-- نقطه شروع: روبروی بازیکن، خوانا از دید او
+	local origin = root.CFrame * CFrame.new(-totalWidth / 2, HEIGHT_OFFSET, -DISTANCE)
+
+	local resizeData, colorData, anchorData = {}, {}, {}
+	local count = 0
+	local firstError = nil
+	local colOffset = 0
+
+	-- 1) first compute the list of all pixels
+	local jobs = {}
+	for i = 1, #text do
+		local ch = text:sub(i, i)
+		if ch == " " then
+			colOffset += SPACE_W + GAP
+		else
+			local glyph = FONT[ch]
+			if glyph then
+				for row = 1, ROWS do
+					for col = 1, COLS do
+						if glyph[row]:sub(col, col) == "#" then
+							local x = (colOffset + col - 1) * PIXEL_SIZE + PIXEL_SIZE / 2
+							local y = (ROWS - row) * PIXEL_SIZE + PIXEL_SIZE / 2
+							table.insert(jobs, origin * CFrame.new(x, y, 0))
+						end
+					end
+				end
+			end
+			colOffset += COLS + GAP
+		end
+	end
+
+	-- 2) Batch creation: make ONE template part, then "Clone" doubles the
+	--    whole list in each call (1 -> 2 -> 4 -> 8 ...) so ~log2(N) requests total
+	local results = {}
+	local okT, template = pcall(function()
+		return api:InvokeServer("CreatePart", "Normal", jobs[1], workspace)
+	end)
+	if not okT then
+		firstError = tostring(template)
+		warn("[PixelText] CreatePart error:", firstError)
+	elseif template then
+		pcall(function() api:InvokeServer("SyncAnchor", {{ Part = template, Anchored = true }}) end)
+		results[1] = template
+		while #results < #jobs do
+			local slice = {}
+			for i = 1, math.min(#results, #jobs - #results) do slice[i] = results[i] end
+			local ok, clones = pcall(function()
+				return api:InvokeServer("Clone", slice, workspace)
+			end)
+			if not ok or type(clones) ~= "table" or #clones == 0 then
+				if not ok and not firstError then
+					firstError = tostring(clones)
+					warn("[PixelText] Clone error:", firstError)
+				end
+				break
+			end
+			for _, c in ipairs(clones) do results[#results + 1] = c end
+			status.Text = "Building... " .. #results .. "/" .. #jobs
+		end
+
+		-- Fallback: if Clone isn't available, create the rest in parallel
+		local startAt = #results + 1
+		if startAt <= #jobs then
+			local nextIndex, finished = startAt, startAt - 1
+			for _ = 1, math.min(THREADS, #jobs - startAt + 1) do
+				task.spawn(function()
+					while nextIndex <= #jobs do
+						local idx = nextIndex
+						nextIndex += 1
+						local ok, part = pcall(function()
+							return api:InvokeServer("CreatePart", "Normal", jobs[idx], workspace)
+						end)
+						results[idx] = ok and part or false
+						finished += 1
+					end
+				end)
+			end
+			while finished < #jobs do task.wait() end
+		end
+	end
+
+	for idx = 1, #jobs do
+		local part = results[idx]
+		if part then
+			table.insert(builtParts, part)
+			table.insert(resizeData, {
+				Part = part, CFrame = jobs[idx],
+				Size = Vector3.new(PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE), -- ضخامت = سایز
+			})
+			table.insert(colorData, { Part = part, Color = currentColor, UnionColoring = false })
+			table.insert(anchorData, { Part = part, Anchored = true })
+			count += 1
+		end
+	end
+
+	pcall(function() api:InvokeServer("SyncResize", resizeData) end)
+	pcall(function() api:InvokeServer("SyncColor", colorData) end)
+	pcall(function() api:InvokeServer("SyncAnchor", anchorData) end)
+
+	-- Lock last, after every other change is applied
+	status.Text = "Locking..."
+	setLockedAll(api, builtParts, true)
+	task.wait(0.2)
+	local function unlockedParts()
+		local list = {}
+		for _, part in ipairs(builtParts) do
+			if typeof(part) == "Instance" and part.Parent and not part.Locked then
+				list[#list + 1] = part
+			end
+		end
+		return list
+	end
+	local notLocked = unlockedParts()
+	if #notLocked > 0 then
+		setLockedAll(api, notLocked, true) -- retry once
+		task.wait(0.2)
+		notLocked = unlockedParts()
+	end
+
+	if count == 0 then
+		status.Text = "0 parts! " .. (firstError and "Error: see Output" or "Server returned nil")
+	else
+		status.Text = "Done! " .. count .. " parts" .. (#notLocked == 0 and " (locked)" or (" (" .. #notLocked .. " not locked)"))
+	end
+	busy = false
+end
+
+local function clear()
+	if busy then
+		status.Text = "Wait for the build to finish"
+		return
+	end
+	if #builtParts == 0 then
+		status.Text = "Nothing to clear"
+		return
+	end
+	local api = findSyncAPI()
+	if not api then
+		status.Text = "SyncAPI not found!"
+		return
+	end
+
+	busy = true
+	status.Text = "Clearing..."
+	local left = removeAll(api)
+	if left == 0 then
+		status.Text = "All texts cleared"
+	else
+		status.Text = "Could not remove " .. left .. " parts (see Output)"
+	end
+	busy = false
+end
+
+local function build(text)
+	local ok, err = pcall(buildInner, text)
+	if not ok then
+		busy = false
+		status.Text = "Error: see Output"
+		warn("[PixelText] Build error:", tostring(err))
+	end
+end
+
+buildBtn.MouseButton1Click:Connect(function() build(box.Text) end)
+clearBtn.MouseButton1Click:Connect(clear)
