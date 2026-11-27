@@ -1,0 +1,1788 @@
+-- =========================================================
+-- F3X Advanced Map Exporter & Importer (Async Faces Version) - Optimized
+-- Fixed & Compatible with all Exporters (Seat / VehicleSeat / Spawn Support)
+-- Unanchored Delay Fix & Cylinder Mesh/Size Fix Applied
+-- + PointLight color list (LIGHT_ALL_PARTS) & Lock Map after build
+-- + Exact PointLight / Fire / Sparkles / Smoke import (new exporter format)
+-- =========================================================
+
+local LIGHT_ALL_PARTS = false
+local POINTLIGHT_ALL_MAP_COLOR = "Red_Green_Yellow_White_Blue" -- فقط وقتی LIGHT_ALL_PARTS = true باشد کار می‌کند (روی پارت‌هایی که رنگ لایت خودشان را ندارند)
+local SET_LOCK_MAP = true -- بعد از اتمام ساخت، همه پارت‌ها Lock می‌شوند
+local GLOBAL_LIGHT_RANGE = 20
+local GLOBAL_LIGHT_BRIGHTNESS = 0.011
+local DISCO_POINTLIGHTS = false
+local DISCO_INTERVAL = 0.5
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Player = Players.LocalPlayer
+
+local tool
+for _, v in ipairs(Player:GetDescendants()) do if v.Name == "SyncAPI" then tool = v.Parent break end end
+if not tool then for _, v in ipairs(ReplicatedStorage:GetDescendants()) do if v.Name == "SyncAPI" then tool = v.Parent break end end end
+if not tool or not tool:FindFirstChild("SyncAPI") then warn("خطا: ابزار F3X پیدا نشد!") return end
+
+local remote = tool.SyncAPI.ServerEndpoint
+local ActiveSyncs = 0
+
+local CHUNK_SIZE = 250 -- تعداد پارت‌ها در هر بسته ارسالی به سرور
+
+local function FireMassiveSync(action, dataArray, extraArg)
+    if not dataArray or #dataArray == 0 then return end
+    
+    -- تقسیم کردن آرایه بزرگ به بسته‌های کوچکتر
+    for i = 1, #dataArray, CHUNK_SIZE do
+        local chunk = {}
+        for j = i, math.min(i + CHUNK_SIZE - 1, #dataArray) do
+            table.insert(chunk, dataArray[j])
+        end
+        
+        ActiveSyncs = ActiveSyncs + 1
+        task.spawn(function()
+            pcall(function()
+                if extraArg ~= nil then 
+                    remote:InvokeServer(action, chunk, extraArg)
+                else 
+                    remote:InvokeServer(action, chunk) 
+                end
+            end)
+            ActiveSyncs = ActiveSyncs - 1
+        end)
+        
+        task.wait() -- یک مکث بسیار کوتاه تا صف شبکه روبلاکس قفل نشود
+    end
+end
+
+local function safeNum(val, default) return tonumber(val) or default or 0 end
+
+-- =========================================================
+-- [ توابع کمکی خواندن مقادیر از متن اکسپورت ] --
+-- %f[%a] باعث می‌شود مثلاً "Color:" داخل "LightColor:" یا "FireColor:" پیدا نشود
+-- =========================================================
+local function getNumber(block, key)
+    local s = block:match("%f[%a]" .. key .. ":%s*(%-?[%d%.]+)")
+    return tonumber(s)
+end
+
+local function getBoolean(block, key)
+    local s = block:match("%f[%a]" .. key .. ":%s*(%a+)")
+    if not s then return nil end
+    return s:lower() == "true"
+end
+
+-- رنگ‌های جدید اکسپورتر به صورت 0 تا 1 ذخیره شده‌اند
+local function getColor3(block, key)
+    local r, g, b = block:match("%f[%a]" .. key .. ":%s*(%-?[%d%.]+)%s*,%s*(%-?[%d%.]+)%s*,%s*(%-?[%d%.]+)")
+    local rn, gn, bn = tonumber(r), tonumber(g), tonumber(b)
+    if rn and gn and bn then
+        return Color3.new(math.clamp(rn, 0, 1), math.clamp(gn, 0, 1), math.clamp(bn, 0, 1))
+    end
+    return nil
+end
+
+-- لیست رنگ‌های قابل استفاده برای POINTLIGHT_ALL_MAP_COLOR
+local COLOR_MAP = {
+    Red = Color3.fromRGB(255, 0, 0),
+    Green = Color3.fromRGB(0, 255, 0),
+    Yellow = Color3.fromRGB(255, 255, 0),
+    White = Color3.fromRGB(255, 255, 255),
+    Blue = Color3.fromRGB(0, 0, 255),
+    Orange = Color3.fromRGB(255, 128, 0),
+    Purple = Color3.fromRGB(150, 0, 255),
+    Pink = Color3.fromRGB(255, 105, 180),
+    Cyan = Color3.fromRGB(0, 255, 255),
+}
+
+local LIGHT_COLORS = {}
+for name in string.gmatch(tostring(POINTLIGHT_ALL_MAP_COLOR), "[^_]+") do
+    if COLOR_MAP[name] then table.insert(LIGHT_COLORS, COLOR_MAP[name]) end
+end
+if #LIGHT_COLORS == 0 then LIGHT_COLORS = {Color3.new(1, 1, 1)} end
+
+local function SetFreeze(state)
+    local char = Player.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        char.HumanoidRootPart.Anchored = state
+    end
+end
+
+---------------------------------------------------------
+-- [کدهای خام خود را در کادر زیر کپی کن] ------------------
+---------------------------------------------------------
+local RawData = [[
+Part 1:
+Position: (55.398, 9.500, -2.000)
+Rotation: (-90.000, 90.000, 0.000)
+Size: (11.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 136811919437319
+
+Part 2:
+Position: (43.000, 67.000, 79.000)
+Rotation: (1.583, 99.399, 26.619)
+Size: (4.000, 1.000, 2.000)
+Shape: Normal
+ClassName: Part
+Color: 0.000, 0.000, 0.000
+Material: Plastic
+Transparency: 0.000
+CanCollide: False
+MeshType: FileMesh
+MeshId: 111891702759441
+MeshTextureId: 9360021426
+MeshScale: 6000.000, 6000.000, 6000.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 3:
+Position: (43.000, 67.000, 79.000)
+Rotation: (0.000, 0.000, 0.000)
+Size: (4.000, 1.000, 2.000)
+Shape: Normal
+ClassName: Part
+Color: 0.000, 0.000, 0.000
+Material: Plastic
+Transparency: 0.000
+CanCollide: False
+MeshType: FileMesh
+MeshId: 126088055641951
+MeshTextureId: 9360021426
+MeshScale: 6000.000, 6000.000, 6000.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 4:
+Position: (43.000, 67.000, 79.000)
+Rotation: (-71.353, -2.697, 2.399)
+Size: (4.000, 1.000, 2.000)
+Shape: Normal
+ClassName: Part
+Color: 0.000, 0.000, 0.000
+Material: Plastic
+Transparency: 0.000
+CanCollide: False
+MeshType: FileMesh
+MeshId: 111891702759441
+MeshTextureId: 9360021426
+MeshScale: 6000.000, 6000.000, 6000.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 5:
+Position: (-67.900, 25.500, 62.000)
+Rotation: (-90.000, -90.000, 0.000)
+Size: (15.000, 0.200, 14.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 9597859601
+
+Part 6:
+Position: (1.000, 25.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 6389093118
+
+Part 7:
+Position: (55.400, 25.500, 70.500)
+Rotation: (-90.000, -90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Decal.Bottom = 18772780465
+
+Part 8:
+Position: (-5.500, -0.500, 45.000)
+Rotation: (0.000, 0.000, 0.000)
+Size: (125.000, 1.000, 154.000)
+Shape: Normal
+ClassName: Part
+Color: 0.333, 0.259, 0.212
+Material: Plastic
+Transparency: 0.000
+Stud.Top: True
+Stud.Bottom: True
+Stud.Left: True
+Stud.Right: True
+Stud.Front: True
+Stud.Back: True
+
+Part 9:
+Position: (-3.000, 26.500, -31.400)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (20.000, 0.200, 12.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 130706653524683
+
+Part 10:
+Position: (-55.000, 9.500, -31.400)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 57029310
+
+Part 11:
+Position: (21.000, 10.500, -31.400)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 13070106387
+
+Part 12:
+Position: (-2.000, 10.500, -31.400)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (22.000, 0.200, 15.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 83593265948524
+
+Part 13:
+Position: (-23.000, 9.500, -31.400)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (11.000, 0.200, 11.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 106097884758304
+
+Part 14:
+Position: (-37.000, 9.500, -31.400)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (13.000, 0.200, 11.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 100245293380688
+
+Part 15:
+Position: (-22.000, 25.500, -31.400)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (11.000, 0.200, 11.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 125980422968108
+
+Part 16:
+Position: (-37.000, 25.000, -31.400)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (13.000, 0.200, 12.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 13426909019
+
+Part 17:
+Position: (21.000, 26.500, -31.400)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (14.000, 0.200, 14.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 135887982387868
+
+Part 18:
+Position: (39.000, 26.500, -31.400)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 11467994821
+
+Part 19:
+Position: (39.000, 10.500, -31.399)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 120011969831681
+
+Part 20:
+Position: (-55.000, 24.500, -31.400)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (14.000, 0.200, 11.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 85497996093875
+
+Part 21:
+Position: (-67.900, 25.000, 20.500)
+Rotation: (-90.000, -90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 10723096747
+
+Part 22:
+Position: (-67.900, 25.000, 41.500)
+Rotation: (-90.000, -90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 12508336242
+
+Part 23:
+Position: (-67.900, 9.000, 20.500)
+Rotation: (-90.000, -90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 7307744965
+
+Part 24:
+Position: (-67.900, 9.000, 41.500)
+Rotation: (-90.000, -90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 80023792064300
+
+Part 25:
+Position: (-67.900, 9.500, 62.000)
+Rotation: (-90.000, -90.000, 0.000)
+Size: (15.000, 0.200, 14.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 11600511919
+
+Part 26:
+Position: (55.398, 26.500, -21.500)
+Rotation: (-90.000, 90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 14141785729
+
+Part 27:
+Position: (55.400, 9.500, 17.500)
+Rotation: (-90.000, 90.000, 0.000)
+Size: (12.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 14995503089
+
+Part 28:
+Position: (55.400, 25.500, 53.500)
+Rotation: (-90.000, 90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 138479638668205
+
+Part 29:
+Position: (-67.900, 25.000, 84.500)
+Rotation: (-90.000, -90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 1.000, 0.000, 0.000
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+
+Part 30:
+Position: (-67.900, 8.500, 84.500)
+Rotation: (-90.000, -90.000, 0.000)
+Size: (14.000, 0.200, 6.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Decal.Top = 131947578380825
+
+Part 31:
+Position: (22.000, 8.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 107847314477681
+
+Part 32:
+Position: (-67.850, 25.000, 84.500)
+Rotation: (-90.000, -90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.973, 0.973, 0.973
+Material: Plastic
+Transparency: 0.000
+MeshType: Head
+MeshScale: 1.000, 1.000, 1.000
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 33:
+Position: (55.400, 9.500, 53.500)
+Rotation: (-90.000, 90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 4906403355
+
+Part 34:
+Position: (2.000, 6.500, -0.999)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (17.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 122714132204276
+
+Part 35:
+Position: (-67.900, 25.000, 2.000)
+Rotation: (-90.000, -90.000, 0.000)
+Size: (15.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 4895077852
+
+Part 36:
+Position: (-5.500, 37.500, 45.000)
+Rotation: (0.000, 0.000, 0.000)
+Size: (125.000, 1.000, 154.000)
+Shape: Normal
+ClassName: Part
+Color: 0.333, 0.259, 0.212
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 120.000
+LightBrightness: 1.5000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Stud.Top: True
+Stud.Bottom: True
+Stud.Left: True
+Stud.Right: True
+Stud.Front: True
+Stud.Back: True
+
+Part 37:
+Position: (55.400, 26.500, -2.500)
+Rotation: (-90.000, 90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 9394787762
+
+Part 38:
+Position: (55.400, 26.500, 17.500)
+Rotation: (-90.000, 90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 9795319424
+
+Part 39:
+Position: (55.400, 9.500, 35.500)
+Rotation: (-90.000, 90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 7307851323
+
+Part 40:
+Position: (55.400, 26.500, 35.500)
+Rotation: (-90.000, 90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 5165329166
+
+Part 41:
+Position: (-67.800, 23.730, 82.962)
+Rotation: (-0.002, 89.995, -45.004)
+Size: (4.000, 1.000, 0.100)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+
+Part 42:
+Position: (-67.800, 21.609, 82.962)
+Rotation: (0.002, 89.995, -134.996)
+Size: (4.000, 1.000, 0.100)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+
+Part 43:
+Position: (55.400, 8.500, 71.500)
+Rotation: (-90.000, -90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Bottom = 13762187293
+
+Part 44:
+Position: (-67.800, 24.251, 87.726)
+Rotation: (-0.002, 89.995, 134.996)
+Size: (4.000, 1.000, 0.100)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+
+Part 45:
+Position: (55.400, 25.500, 88.500)
+Rotation: (-90.000, 90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 11490144840
+
+Part 46:
+Position: (-67.800, 23.730, 85.084)
+Rotation: (0.002, 89.995, -134.996)
+Size: (4.000, 1.000, 0.100)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+
+Part 47:
+Position: (-67.800, 26.205, 85.437)
+Rotation: (-0.002, 89.995, -45.004)
+Size: (3.000, 1.000, 0.100)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+
+Part 48:
+Position: (-67.800, 28.279, 85.484)
+Rotation: (0.002, 89.995, 45.004)
+Size: (4.000, 1.000, 0.100)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+
+Part 49:
+Position: (-67.800, 25.851, 82.962)
+Rotation: (0.002, 89.995, -134.996)
+Size: (4.000, 1.000, 0.100)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+
+Part 50:
+Position: (-67.800, 25.498, 80.487)
+Rotation: (-0.002, 89.995, 134.996)
+Size: (3.000, 1.000, 0.100)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+
+Part 51:
+Position: (-67.900, 9.000, 105.500)
+Rotation: (-90.000, -90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Decal.Top = 136806122960039
+
+Part 52:
+Position: (-67.900, 25.000, 105.500)
+Rotation: (-90.000, -90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 125355422762187
+
+Part 53:
+Position: (-35.000, 24.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 5561921617
+
+Part 54:
+Position: (55.400, 8.500, 89.500)
+Rotation: (-90.000, 90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 112333668108750
+
+Part 55:
+Position: (-54.000, 23.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 10048874487
+
+Part 56:
+Position: (55.400, 8.500, 105.500)
+Rotation: (-90.000, 90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 6842461300
+
+Part 57:
+Position: (-54.000, 8.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 7997767703
+
+Part 58:
+Position: (-16.000, 8.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 6521982064
+
+Part 59:
+Position: (55.400, 25.500, 105.500)
+Rotation: (-90.000, 90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 5154936366
+
+Part 60:
+Position: (-35.000, 8.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 5448230061
+
+Part 61:
+Position: (22.000, 25.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 122572358834465
+
+Part 62:
+Position: (-15.000, 25.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 6420989172
+
+Part 63:
+Position: (1.000, 8.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 7409389357
+
+Part 64:
+Position: (-67.900, 9.000, -20.000)
+Rotation: (-90.000, -90.000, 0.000)
+Size: (15.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Decal.Top = 104647365814575
+
+Part 65:
+Position: (-5.500, 18.500, -32.000)
+Rotation: (90.000, 0.000, 0.000)
+Size: (125.000, 1.000, 38.000)
+Shape: Normal
+ClassName: Part
+Color: 0.333, 0.259, 0.212
+Material: Plastic
+Transparency: 0.000
+Stud.Top: True
+Stud.Bottom: True
+Stud.Left: True
+Stud.Right: True
+Stud.Front: True
+Stud.Back: True
+
+Part 66:
+Position: (56.000, 18.500, 46.000)
+Rotation: (90.000, -90.000, 0.000)
+Size: (155.000, 1.000, 38.000)
+Shape: Normal
+ClassName: Part
+Color: 0.333, 0.259, 0.212
+Material: Plastic
+Transparency: 0.000
+Stud.Top: True
+Stud.Bottom: True
+Stud.Left: True
+Stud.Right: True
+Stud.Front: True
+Stud.Back: True
+
+Part 67:
+Position: (-5.500, 18.500, 121.000)
+Rotation: (90.000, 0.000, 0.000)
+Size: (125.000, 1.000, 38.000)
+Shape: Normal
+ClassName: Part
+Color: 0.333, 0.259, 0.212
+Material: Plastic
+Transparency: 0.000
+Stud.Top: True
+Stud.Bottom: True
+Stud.Left: True
+Stud.Right: True
+Stud.Front: True
+Stud.Back: True
+
+Part 68:
+Position: (-68.500, 19.000, 44.000)
+Rotation: (90.000, -90.000, 0.000)
+Size: (155.000, 1.000, 38.000)
+Shape: Normal
+ClassName: Part
+Color: 0.333, 0.259, 0.212
+Material: Plastic
+Transparency: 0.000
+Stud.Top: True
+Stud.Bottom: True
+Stud.Left: True
+Stud.Right: True
+Stud.Front: True
+Stud.Back: True
+
+Part 69:
+Position: (-67.900, 9.000, 2.000)
+Rotation: (-90.000, -90.000, 0.000)
+Size: (15.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 15783760408
+
+Part 70:
+Position: (-67.900, 25.000, -20.000)
+Rotation: (-90.000, -90.000, 0.000)
+Size: (15.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 98092973019668
+
+Part 71:
+Position: (42.000, 25.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 6738309777
+
+Part 72:
+Position: (55.398, 9.500, -21.500)
+Rotation: (-90.000, 90.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 139025963234084
+
+Part 73:
+Position: (-4.116, 5.064, 0.184)
+Rotation: (-0.020, -178.432, 0.000)
+Size: (1.200, 0.800, 1.400)
+Shape: Normal
+ClassName: Part
+Color: 0.635, 0.631, 0.643
+Material: Plastic
+Transparency: 0.000
+CanCollide: False
+MeshType: FileMesh
+MeshId: 71483350
+MeshTextureId: 607698990
+MeshScale: 0.660, 0.660, 0.660
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 74:
+Position: (-71.000, 33.000, -1.000)
+Rotation: (0.000, 0.000, 0.000)
+Size: (2.000, 66.000, 94.000)
+Shape: Normal
+ClassName: Part
+Color: 0.635, 0.627, 0.643
+Material: Fabric
+Transparency: 0.000
+Decal.Right = 122714132204276
+
+Part 75:
+Position: (-71.000, 33.000, -1.000)
+Rotation: (0.000, 0.000, 0.000)
+Size: (2.000, 66.000, 94.000)
+Shape: Normal
+ClassName: Part
+Color: 0.635, 0.627, 0.643
+Material: Fabric
+Transparency: 0.000
+Decal.Right = 122714132204276
+
+Part 76:
+Position: (-3.510, 0.000, 42.799)
+Rotation: (0.000, 0.000, 0.000)
+Size: (12.000, 1.000, 12.000)
+Shape: Spawn
+ClassName: SpawnLocation
+SpawnPoint: True
+Color: 0.635, 0.631, 0.643
+Material: Plastic
+Transparency: 0.000
+Decal.Top = 6045248793
+
+Part 77:
+Position: (42.000, 8.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Decal.Top = 4629896408
+
+Part 78:
+Position: (-4.121, 4.489, -0.015)
+Rotation: (-0.020, -178.432, 0.000)
+Size: (2.000, 1.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+CanCollide: False
+MeshType: Head
+MeshScale: 1.250, 1.250, 1.250
+MeshOffset: 0.000, 0.000, 0.000
+
+Part 79:
+Position: (-4.121, 2.989, -0.016)
+Rotation: (0.000, -178.561, 0.000)
+Size: (2.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+CanCollide: False
+
+Part 80:
+Position: (-2.620, 2.964, -0.040)
+Rotation: (60.288, -119.662, 0.081)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+CanCollide: False
+
+Part 81:
+Position: (-5.621, 2.982, 0.032)
+Rotation: (0.488, -177.917, 0.073)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.122, 0.016, 0.012
+Material: Plastic
+Transparency: 0.000
+CanCollide: False
+
+Part 82:
+Position: (-3.621, 1.017, -0.028)
+Rotation: (0.000, -178.556, 0.000)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.345, 0.129, 0.345
+Material: Plastic
+Transparency: 0.000
+CanCollide: False
+
+Part 83:
+Position: (-4.621, 1.012, -0.003)
+Rotation: (0.000, -178.556, 0.000)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.345, 0.129, 0.345
+Material: Plastic
+Transparency: 0.000
+CanCollide: False
+]]
+---------------------------------------------------------
+
+local function RemoveAllPlayers()
+    local playerParts = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= Player and p.Character then
+            for _, child in ipairs(p.Character:GetDescendants()) do
+                if child:IsA("BasePart") then table.insert(playerParts, child) end
+            end
+        end
+    end
+    FireMassiveSync("SetLocked", playerParts, false)
+    FireMassiveSync("Remove", playerParts)
+end
+
+local function FastClearMap()
+    local mapParts = {}
+    for _, v in ipairs(workspace:GetDescendants()) do
+        if (v:IsA("BasePart") or v:IsA("UnionOperation")) and v.Name ~= "Terrain" then
+            if not (Player.Character and v:IsDescendantOf(Player.Character)) then
+                table.insert(mapParts, v)
+            end
+        end
+    end
+    FireMassiveSync("SetLocked", mapParts, false)
+    FireMassiveSync("Remove", mapParts)
+end
+
+local function BuildAndVerifyMap(data)
+    local partsToBuild = {}
+    
+    local cleanData = data:gsub("Part %d+:", "|||")
+    for partBlock in cleanData:gmatch("([^|]+)") do
+        local x, y, z = partBlock:match("Position:%s*%(([^,]+),%s*([^,]+),%s*([^)]+)%)")
+        if x and y and z then
+            local rx, ry, rz = partBlock:match("Rotation:%s*%(([^,]+),%s*([^,]+),%s*([^)]+)%)")
+            local sx, sy, sz = partBlock:match("Size:%s*%(([^,]+),%s*([^,]+),%s*([^)]+)%)")
+            
+            local shape = partBlock:match("Shape:%s*([%a%d]+)")
+            local className = partBlock:match("Class:%s*([%a%d]+)") or partBlock:match("ClassName:%s*([%a%d]+)") or partBlock:match("Type:%s*([%a%d]+)")
+            
+            -- رنگ خود پارت (بدون قاطی شدن با LightColor / FireColor / ...)
+            local r, g, b = partBlock:match("%f[%a]Color:%s*([^,]+),%s*([^,]+),%s*([^%s\r\n]+)")
+            local mat = partBlock:match("Material:%s*([%a%d]+)")
+            local trans = partBlock:match("Transparency:%s*([%d%.]+)")
+            
+            local decals = {}
+            for face in string.gmatch("Top Bottom Left Right Front Back", "%a+") do
+                local dId = partBlock:match("Decal%." .. face .. "%s*=%s*(%d+)")
+                if dId then decals[face] = dId end
+            end
+            
+            local textures = {}
+            for face in string.gmatch("Top Bottom Left Right Front Back", "%a+") do
+                local tId = partBlock:match("Texture%." .. face .. "%s*=%s*(%d+)")
+                if tId then textures[face] = tId end
+            end
+            
+            local surfaces = {}
+            local generalStud = (partBlock:match("Stud:%s*[Tt]rue") or partBlock:match("Studs:%s*[Tt]rue")) and true or false
+            for face in string.gmatch("Top Bottom Left Right Front Back", "%a+") do
+                local faceStud = (partBlock:match("Stud%." .. face .. ":%s*[Tt]rue") or partBlock:match("Studs%." .. face .. ":%s*[Tt]rue")) and true or false
+                if faceStud or generalStud then
+                    surfaces[face] = Enum.SurfaceType.Studs
+                end
+            end
+            
+            local meshType = partBlock:match("MeshType:%s*(%a+)")
+            local meshId = partBlock:match("MeshId:%s*(%S+)") or partBlock:match("Mesh:%s*(%S+)")
+            local meshTextureId = partBlock:match("MeshTextureId:%s*(%S+)") or partBlock:match("MeshTexture:%s*(%S+)")
+            
+            local msStr = partBlock:match("MeshScale:%s*([^\n\r]+)")
+            local msX, msY, msZ = 1, 1, 1
+            if msStr then
+                local ex, ey, ez = msStr:match("([%d%.]+)%s*,%s*([%d%.]+)%s*,%s*([%d%.]+)")
+                if ex and ey and ez then msX, msY, msZ = ex, ey, ez end
+            end
+            
+            -- [ PointLight ] مشخصات دقیق (سازگار با اکسپورتر قدیمی و جدید)
+            local lightRange = getNumber(partBlock, "LightRange")
+            local lightBrightness = getNumber(partBlock, "LightBrightness")
+            local lightColor = getColor3(partBlock, "LightColor")
+            local lightShadows = getBoolean(partBlock, "LightShadows")
+            local lightEnabled = getBoolean(partBlock, "LightEnabled")
+            local hasLight = (getBoolean(partBlock, "Light") == true) or lightRange ~= nil or lightBrightness ~= nil or lightColor ~= nil
+
+            -- [ Fire / Sparkles / Smoke ] مشخصات دقیق (فقط مقادیری که در دیتا وجود دارند)
+            local hasFire = partBlock:match("Fire:%s*[Tt]rue") and true or false
+            local hasSparkles = partBlock:match("Sparkles:%s*[Tt]rue") and true or false
+            local hasSmoke = partBlock:match("Smoke:%s*[Tt]rue") and true or false
+
+            local fireProps, sparklesProps, smokeProps = {}, {}, {}
+            if hasFire then
+                fireProps.Color = getColor3(partBlock, "FireColor")
+                fireProps.SecondaryColor = getColor3(partBlock, "FireSecondaryColor")
+                fireProps.Heat = getNumber(partBlock, "FireHeat")
+                fireProps.Size = getNumber(partBlock, "FireSize")
+                if getBoolean(partBlock, "FireEnabled") == false then fireProps.Enabled = false end
+            end
+            if hasSparkles then
+                sparklesProps.SparkleColor = getColor3(partBlock, "SparklesColor")
+                if getBoolean(partBlock, "SparklesEnabled") == false then sparklesProps.Enabled = false end
+            end
+            if hasSmoke then
+                smokeProps.Color = getColor3(partBlock, "SmokeColor")
+                smokeProps.Size = getNumber(partBlock, "SmokeSize")
+                smokeProps.Opacity = getNumber(partBlock, "SmokeOpacity")
+                smokeProps.RiseVelocity = getNumber(partBlock, "SmokeRiseVelocity")
+                if getBoolean(partBlock, "SmokeEnabled") == false then smokeProps.Enabled = false end
+            end
+
+            local isUnanchored = partBlock:match("Unanchored:%s*[Tt]rue") and true or false
+            
+            local f3xShape = "Normal"
+            if partBlock:match("SpawnPoint:%s*[Tt]rue") or shape == "Spawn" or className == "SpawnLocation" then 
+                f3xShape = "Spawn"
+            elseif partBlock:match("VehicleSeat:%s*[Tt]rue") or shape == "VehicleSeat" or className == "VehicleSeat" then 
+                f3xShape = "Vehicle Seat"
+            elseif partBlock:match("Seat:%s*[Tt]rue") or shape == "Seat" or className == "Seat" then 
+                f3xShape = "Seat"
+            elseif shape == "Cylinder" or className == "CylinderPart" then 
+                f3xShape = "Cylinder"
+            elseif shape == "Ball" or shape == "Sphere" then 
+                f3xShape = "Ball"
+            elseif shape == "Wedge" or className == "WedgePart" then 
+                f3xShape = "Wedge"
+            elseif shape == "Corner" or shape == "CornerWedge" or className == "CornerWedgePart" then 
+                f3xShape = "Corner"
+            elseif shape == "Truss" or className == "TrussPart" then 
+                f3xShape = "Truss" 
+            end
+            
+            local pColor = Color3.new(1, 1, 1)
+            if r and g and b then
+                local rn, gn, bn = safeNum(r), safeNum(g), safeNum(b)
+                if rn > 1 or gn > 1 or bn > 1 then pColor = Color3.fromRGB(rn, gn, bn)
+                else pColor = Color3.new(rn, gn, bn) end
+            end
+            
+            table.insert(partsToBuild, {
+                pos = Vector3.new(safeNum(x), safeNum(y), safeNum(z)),
+                rot = Vector3.new(safeNum(rx), safeNum(ry), safeNum(rz)),
+                shape = f3xShape, size = Vector3.new(safeNum(sx,1), safeNum(sy,1), safeNum(sz,1)),
+                color = pColor, material = mat or "Plastic", transparency = safeNum(trans),
+                decals = decals, textures = textures, surfaces = surfaces,
+                meshType = meshType, meshId = meshId, meshTextureId = meshTextureId, 
+                meshScale = Vector3.new(safeNum(msX, 1), safeNum(msY, 1), safeNum(msZ, 1)),
+                hasLight = hasLight, lightRange = lightRange, lightBrightness = lightBrightness,
+                lightColor = lightColor, lightShadows = lightShadows, lightEnabled = lightEnabled,
+                hasFire = hasFire, hasSparkles = hasSparkles, hasSmoke = hasSmoke,
+                fireProps = fireProps, sparklesProps = sparklesProps, smokeProps = smokeProps,
+                collision = not (partBlock:match("CanCollide:%s*[Ff]alse")),
+                isUnanchored = isUnanchored
+            })
+        end
+    end
+    
+    local totalParts = #partsToBuild
+    if totalParts == 0 then warn("خطا: پارتی یافت نشد!") return end
+
+    local batches = {
+        resize = {}, color = {}, material = {}, anchor = {}, unanchor = {}, collision = {},
+        lockParts = {},
+        meshCreate = {}, meshSync = {}, 
+        lightCreate = {}, lightSync = {}, decorationCreate = {}, decorationSync = {}, surface = {},
+        decalCreate = {Top={}, Bottom={}, Left={}, Right={}, Front={}, Back={}},
+        decalSync = {Top={}, Bottom={}, Left={}, Right={}, Front={}, Back={}}
+    }
+    
+    local completed = 0
+
+    for i, pData in ipairs(partsToBuild) do
+        if i % 50 == 0 then
+            RunService.Heartbeat:Wait()
+        end
+
+        task.spawn(function()
+            local baseCFrame = CFrame.new(pData.pos) * CFrame.fromOrientation(math.rad(pData.rot.X), math.rad(pData.rot.Y), math.rad(pData.rot.Z))
+
+            local success, p = pcall(function()
+                return remote:InvokeServer("CreatePart", pData.shape, baseCFrame, workspace)
+            end)
+            
+            if success and p and typeof(p) == "Instance" then
+                table.insert(batches.resize, {Part = p, CFrame = baseCFrame, Size = pData.size})
+                table.insert(batches.color, {Part = p, Color = pData.color})
+                table.insert(batches.lockParts, p)
+                
+                table.insert(batches.anchor, {Part = p, Anchored = true})
+                if pData.isUnanchored then
+                    table.insert(batches.unanchor, {Part = p, Anchored = false})
+                end
+
+                table.insert(batches.collision, {Part = p, CanCollide = pData.collision})
+                
+                local matSuccess, matEnum = pcall(function() return Enum.Material[pData.material:gsub("%s+", "")] end)
+                table.insert(batches.material, {Part = p, Material = matSuccess and matEnum or Enum.Material.Plastic, Transparency = pData.transparency})
+                
+                if next(pData.surfaces) ~= nil then
+                    local appliedSurfaces = {}
+                    for faceKey, surfEnum in pairs(pData.surfaces) do
+                        appliedSurfaces[faceKey] = surfEnum
+                    end
+                    table.insert(batches.surface, {Part = p, Surfaces = appliedSurfaces})
+                end
+                
+                -- PointLight: اگر دیتا مشخصات خودش را دارد دقیقاً همان اعمال می‌شود،
+                -- در غیر این صورت مقادیر Global و (در حالت LIGHT_ALL_PARTS) رنگ تصادفی از لیست
+                if pData.hasLight or LIGHT_ALL_PARTS then
+                    local targetRange = pData.lightRange or tonumber(GLOBAL_LIGHT_RANGE) or 20
+                    local targetBright = pData.lightBrightness or tonumber(GLOBAL_LIGHT_BRIGHTNESS) or 0.011
+
+                    local targetColor = pData.lightColor
+                    if not targetColor then
+                        if LIGHT_ALL_PARTS then
+                            targetColor = LIGHT_COLORS[math.random(#LIGHT_COLORS)]
+                        else
+                            targetColor = Color3.new(1, 1, 1)
+                        end
+                    end
+
+                    local lightChange = {
+                        Part = p, LightType = "PointLight", Range = targetRange,
+                        Brightness = targetBright, Color = targetColor,
+                        Shadows = (pData.lightShadows == true)
+                    }
+                    if pData.lightEnabled == false then lightChange.Enabled = false end
+
+                    table.insert(batches.lightCreate, {Part = p, LightType = "PointLight"})
+                    table.insert(batches.lightSync, lightChange)
+                end
+                
+                -- Fire / Sparkles / Smoke با مشخصات دقیق
+                if pData.hasFire then
+                    table.insert(batches.decorationCreate, {Part = p, DecorationType = "Fire"})
+                    local change = {Part = p, DecorationType = "Fire"}
+                    for k, v in pairs(pData.fireProps) do change[k] = v end
+                    table.insert(batches.decorationSync, change)
+                end
+                if pData.hasSparkles then
+                    table.insert(batches.decorationCreate, {Part = p, DecorationType = "Sparkles"})
+                    local change = {Part = p, DecorationType = "Sparkles"}
+                    for k, v in pairs(pData.sparklesProps) do change[k] = v end
+                    table.insert(batches.decorationSync, change)
+                end
+                if pData.hasSmoke then
+                    table.insert(batches.decorationCreate, {Part = p, DecorationType = "Smoke"})
+                    local change = {Part = p, DecorationType = "Smoke"}
+                    for k, v in pairs(pData.smokeProps) do change[k] = v end
+                    table.insert(batches.decorationSync, change)
+                end
+                
+                if pData.meshId or pData.meshType then
+                    table.insert(batches.meshCreate, {Part = p})
+                    local mTypeEnum = Enum.MeshType.FileMesh
+                    if pData.meshType then
+                        local meshTypeMap = {
+                            File = "FileMesh", FileMesh = "FileMesh", Block = "Brick", Brick = "Brick",
+                            Head = "Head", Sphere = "Sphere", Wedge = "Wedge", Cylinder = "Cylinder"
+                        }
+                        local mappedType = meshTypeMap[pData.meshType] or pData.meshType
+                        local typeSuccess, typeEnum = pcall(function() return Enum.MeshType[mappedType] end)
+                        if typeSuccess and typeEnum then mTypeEnum = typeEnum end
+                    end
+                    
+                    local mId, tId = "", ""
+                    if pData.meshId then local x = pData.meshId:match("%d+") if x then mId = "rbxassetid://"..x end end
+                    if pData.meshTextureId then local x = pData.meshTextureId:match("%d+") if x then tId = "rbxassetid://"..x end end
+                    
+                    table.insert(batches.meshSync, {
+                        Part = p, MeshType = mTypeEnum, MeshId = mId, 
+                        TextureId = tId, Scale = pData.meshScale, Offset = Vector3.new(0, 0, 0)
+                    })
+                end
+                
+                for faceName, dId in pairs(pData.decals) do
+                    local formattedFace = faceName:sub(1,1):upper() .. faceName:sub(2):lower()
+                    local faceSuccess, faceEnum = pcall(function() return Enum.NormalId[formattedFace] end)
+                    if faceSuccess and faceEnum and dId:match("%d+") then
+                        table.insert(batches.decalCreate[formattedFace], {Part = p, Face = faceEnum, TextureType = "Decal"})
+                        table.insert(batches.decalSync[formattedFace], {Part = p, Face = faceEnum, TextureType = "Decal", Texture = "rbxassetid://"..dId:match("%d+")})
+                    end
+                end
+
+                for faceName, tId in pairs(pData.textures) do
+                    local formattedFace = faceName:sub(1,1):upper() .. faceName:sub(2):lower()
+                    local faceSuccess, faceEnum = pcall(function() return Enum.NormalId[formattedFace] end)
+                    if faceSuccess and faceEnum and tId:match("%d+") then
+                        table.insert(batches.decalCreate[formattedFace], {Part = p, Face = faceEnum, TextureType = "Texture"})
+                        table.insert(batches.decalSync[formattedFace], {Part = p, Face = faceEnum, TextureType = "Texture", Texture = "rbxassetid://"..tId:match("%d+")})
+                    end
+                end
+            end
+            completed = completed + 1
+        end)
+    end
+    
+    while completed < totalParts do RunService.Heartbeat:Wait() end
+    
+    FireMassiveSync("SyncResize", batches.resize)
+    FireMassiveSync("SyncColor", batches.color)
+    FireMassiveSync("SyncMaterial", batches.material)
+    FireMassiveSync("SyncAnchor", batches.anchor)
+    FireMassiveSync("SyncCollision", batches.collision)
+    
+    if #batches.surface > 0 then
+        FireMassiveSync("SyncSurface", batches.surface)
+    end
+    
+    if #batches.lightCreate > 0 then 
+        FireMassiveSync("CreateLights", batches.lightCreate)
+        FireMassiveSync("SyncLighting", batches.lightSync)
+    end
+    
+    if #batches.decorationCreate > 0 then
+        FireMassiveSync("CreateDecorations", batches.decorationCreate)
+        -- صبر می‌کنیم تا همه افکت‌ها ساخته شوند، بعد مشخصاتشان (رنگ، اندازه و ...) اعمال شود
+        while ActiveSyncs > 0 do
+            RunService.Heartbeat:Wait()
+        end
+        FireMassiveSync("SyncDecorate", batches.decorationSync)
+    end
+    
+    if #batches.meshCreate > 0 then 
+        FireMassiveSync("CreateMeshes", batches.meshCreate)
+        FireMassiveSync("SyncMesh", batches.meshSync)
+    end
+
+    local hasAnyDecal = false
+    for _, faceBatch in pairs(batches.decalCreate) do
+        if #faceBatch > 0 then hasAnyDecal = true break end
+    end
+
+    if hasAnyDecal then 
+        for faceName, faceBatch in pairs(batches.decalCreate) do
+            if #faceBatch > 0 then
+                FireMassiveSync("CreateTextures", faceBatch)
+                FireMassiveSync("SyncTexture", batches.decalSync[faceName])
+            end
+        end
+    end
+
+    while ActiveSyncs > 0 do 
+        RunService.Heartbeat:Wait() 
+    end
+    
+    if #batches.unanchor > 0 then
+        FireMassiveSync("SyncAnchor", batches.unanchor)
+        while ActiveSyncs > 0 do 
+            RunService.Heartbeat:Wait() 
+        end
+    end
+
+    -- Lock کردن همه پارت‌های ساخته‌شده با Btools
+    if SET_LOCK_MAP and #batches.lockParts > 0 then
+        FireMassiveSync("SetLocked", batches.lockParts, true)
+        while ActiveSyncs > 0 do
+            RunService.Heartbeat:Wait()
+        end
+    end
+end
+
+local function StartDisco()
+    if not DISCO_POINTLIGHTS then return end
+
+    -- پیدا کردن همه‌ی پارت‌هایی که PointLight دارند
+    local lightParts = {}
+    for _, v in ipairs(workspace:GetDescendants()) do
+        if v:IsA("PointLight") and v.Parent and v.Parent:IsA("BasePart") then
+            table.insert(lightParts, v.Parent)
+        end
+    end
+    if #lightParts == 0 then return end
+
+    task.spawn(function()
+        while DISCO_POINTLIGHTS do
+            local batch = {}
+            for _, part in ipairs(lightParts) do
+                if part and part.Parent then
+                    table.insert(batch, {
+                        Part = part,
+                        LightType = "PointLight",
+                        Color = Color3.fromHSV(math.random(), 1, 1) -- رنگ تصادفی و زنده برای هر لایت
+                    })
+                end
+            end
+            FireMassiveSync("SyncLighting", batch)
+            task.wait(DISCO_INTERVAL)
+        end
+    end)
+end
+
+task.spawn(function()
+    SetFreeze(true)              
+    RemoveAllPlayers()        
+    FastClearMap()
+    
+    while ActiveSyncs > 0 do RunService.Heartbeat:Wait() end
+            
+    BuildAndVerifyMap(RawData)
+    SetFreeze(false)
+    local p, p2 = game.Players.LocalPlayer.Character, {}
+    for _, v in pairs(workspace:GetDescendants()) do 
+        if v:IsA("SpawnLocation") then table.insert(p2, v) end 
+    end
+    p:PivotTo(#p2 > 0 and p2[math.random(#p2)].CFrame + Vector3.new(0, 3, 0) or CFrame.new(0, 5, 0))   
+    StartDisco()           
+end)
