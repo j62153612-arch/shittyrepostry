@@ -8,7 +8,7 @@
 
 local LIGHT_ALL_PARTS = false
 local POINTLIGHT_ALL_MAP_COLOR = "Red_Green_Yellow_White_Blue" -- فقط وقتی LIGHT_ALL_PARTS = true باشد کار می‌کند (روی پارت‌هایی که رنگ لایت خودشان را ندارند)
-local SET_LOCK_MAP = false -- بعد از اتمام ساخت، همه پارت‌ها Lock می‌شوند
+local SET_LOCK_MAP = true -- بعد از اتمام ساخت، همه پارت‌ها Lock می‌شوند
 local GLOBAL_LIGHT_RANGE = 20
 local GLOBAL_LIGHT_BRIGHTNESS = 0.011
 local DISCO_POINTLIGHTS = false
