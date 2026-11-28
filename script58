@@ -8,7 +8,7 @@
 
 local LIGHT_ALL_PARTS = false
 local POINTLIGHT_ALL_MAP_COLOR = "Red_Green_Yellow_White_Blue" -- فقط وقتی LIGHT_ALL_PARTS = true باشد کار می‌کند (روی پارت‌هایی که رنگ لایت خودشان را ندارند)
-local SET_LOCK_MAP = true -- بعد از اتمام ساخت، همه پارت‌ها Lock می‌شوند
+local SET_LOCK_MAP = false -- بعد از اتمام ساخت، همه پارت‌ها Lock می‌شوند
 local GLOBAL_LIGHT_RANGE = 20
 local GLOBAL_LIGHT_BRIGHTNESS = 0.011
 local DISCO_POINTLIGHTS = false
@@ -113,7 +113,18 @@ end
 ---------------------------------------------------------
 local RawData = [[
 Part 1:
-Position: (55.398, 9.500, -2.000)
+Position: (-4.621, 1.012, -0.003)
+Rotation: (0.000, -178.556, 0.000)
+Size: (1.000, 2.000, 1.000)
+Shape: Normal
+ClassName: Part
+Color: 0.341, 0.125, 0.341
+Material: Plastic
+Transparency: 0.000
+CanCollide: False
+
+Part 2:
+Position: (108.398, 9.500, -2.000)
 Rotation: (-90.000, 90.000, 0.000)
 Size: (11.000, 0.200, 13.000)
 Shape: Normal
@@ -129,7 +140,7 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 136811919437319
 
-Part 2:
+Part 3:
 Position: (43.000, 67.000, 79.000)
 Rotation: (1.583, 99.399, 26.619)
 Size: (4.000, 1.000, 2.000)
@@ -145,7 +156,7 @@ MeshTextureId: 9360021426
 MeshScale: 6000.000, 6000.000, 6000.000
 MeshOffset: 0.000, 0.000, 0.000
 
-Part 3:
+Part 4:
 Position: (43.000, 67.000, 79.000)
 Rotation: (0.000, 0.000, 0.000)
 Size: (4.000, 1.000, 2.000)
@@ -161,7 +172,7 @@ MeshTextureId: 9360021426
 MeshScale: 6000.000, 6000.000, 6000.000
 MeshOffset: 0.000, 0.000, 0.000
 
-Part 4:
+Part 5:
 Position: (43.000, 67.000, 79.000)
 Rotation: (-71.353, -2.697, 2.399)
 Size: (4.000, 1.000, 2.000)
@@ -177,8 +188,8 @@ MeshTextureId: 9360021426
 MeshScale: 6000.000, 6000.000, 6000.000
 MeshOffset: 0.000, 0.000, 0.000
 
-Part 5:
-Position: (-67.900, 25.500, 62.000)
+Part 6:
+Position: (-111.900, 25.500, 62.000)
 Rotation: (-90.000, -90.000, 0.000)
 Size: (15.000, 0.200, 14.000)
 Shape: Normal
@@ -194,7 +205,7 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 9597859601
 
-Part 6:
+Part 7:
 Position: (1.000, 25.500, 120.400)
 Rotation: (-90.000, 0.000, 0.000)
 Size: (14.000, 0.200, 13.000)
@@ -211,8 +222,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 6389093118
 
-Part 7:
-Position: (55.400, 25.500, 70.500)
+Part 8:
+Position: (108.400, 25.500, 70.500)
 Rotation: (-90.000, -90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -222,13 +233,13 @@ Material: Plastic
 Transparency: 0.000
 Decal.Bottom = 18772780465
 
-Part 8:
-Position: (-5.500, -0.500, 45.000)
+Part 9:
+Position: (-2.000, -0.500, 45.000)
 Rotation: (0.000, 0.000, 0.000)
-Size: (125.000, 1.000, 154.000)
+Size: (226.000, 1.000, 154.000)
 Shape: Normal
 ClassName: Part
-Color: 0.333, 0.259, 0.212
+Color: 0.329, 0.259, 0.212
 Material: Plastic
 Transparency: 0.000
 Stud.Top: True
@@ -238,7 +249,7 @@ Stud.Right: True
 Stud.Front: True
 Stud.Back: True
 
-Part 9:
+Part 10:
 Position: (-3.000, 26.500, -31.400)
 Rotation: (-90.000, 180.000, 0.000)
 Size: (20.000, 0.200, 12.000)
@@ -255,10 +266,10 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 130706653524683
 
-Part 10:
-Position: (-55.000, 9.500, -31.400)
+Part 11:
+Position: (-53.500, 9.500, -31.400)
 Rotation: (-90.000, 180.000, 0.000)
-Size: (14.000, 0.200, 13.000)
+Size: (13.000, 0.200, 13.000)
 Shape: Normal
 ClassName: Part
 Color: 0.067, 0.067, 0.067
@@ -270,9 +281,9 @@ LightBrightness: 1.0000
 LightColor: 1.00000, 1.00000, 1.00000
 LightShadows: False
 LightEnabled: True
-Decal.Top = 57029310
+Decal.Top = 131514817139643
 
-Part 11:
+Part 12:
 Position: (21.000, 10.500, -31.400)
 Rotation: (-90.000, 180.000, 0.000)
 Size: (14.000, 0.200, 13.000)
@@ -289,7 +300,7 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 13070106387
 
-Part 12:
+Part 13:
 Position: (-2.000, 10.500, -31.400)
 Rotation: (-90.000, 180.000, 0.000)
 Size: (22.000, 0.200, 15.000)
@@ -306,7 +317,7 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 83593265948524
 
-Part 13:
+Part 14:
 Position: (-23.000, 9.500, -31.400)
 Rotation: (-90.000, 180.000, 0.000)
 Size: (11.000, 0.200, 11.000)
@@ -323,10 +334,10 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 106097884758304
 
-Part 14:
-Position: (-37.000, 9.500, -31.400)
+Part 15:
+Position: (-36.500, 9.500, -31.400)
 Rotation: (-90.000, 180.000, 0.000)
-Size: (13.000, 0.200, 11.000)
+Size: (12.000, 0.200, 11.000)
 Shape: Normal
 ClassName: Part
 Color: 0.067, 0.067, 0.067
@@ -340,7 +351,7 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 100245293380688
 
-Part 15:
+Part 16:
 Position: (-22.000, 25.500, -31.400)
 Rotation: (-90.000, 180.000, 0.000)
 Size: (11.000, 0.200, 11.000)
@@ -357,7 +368,7 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 125980422968108
 
-Part 16:
+Part 17:
 Position: (-37.000, 25.000, -31.400)
 Rotation: (-90.000, 180.000, 0.000)
 Size: (13.000, 0.200, 12.000)
@@ -374,7 +385,7 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 13426909019
 
-Part 17:
+Part 18:
 Position: (21.000, 26.500, -31.400)
 Rotation: (-90.000, 180.000, 0.000)
 Size: (14.000, 0.200, 14.000)
@@ -391,7 +402,7 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 135887982387868
 
-Part 18:
+Part 19:
 Position: (39.000, 26.500, -31.400)
 Rotation: (-90.000, 180.000, 0.000)
 Size: (14.000, 0.200, 13.000)
@@ -408,7 +419,7 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 11467994821
 
-Part 19:
+Part 20:
 Position: (39.000, 10.500, -31.399)
 Rotation: (-90.000, 180.000, 0.000)
 Size: (14.000, 0.200, 13.000)
@@ -425,25 +436,19 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 120011969831681
 
-Part 20:
-Position: (-55.000, 24.500, -31.400)
+Part 21:
+Position: (-53.500, 24.500, -31.400)
 Rotation: (-90.000, 180.000, 0.000)
-Size: (14.000, 0.200, 11.000)
+Size: (13.000, 0.200, 11.000)
 Shape: Normal
 ClassName: Part
 Color: 0.067, 0.067, 0.067
 Material: Plastic
 Transparency: 0.000
-Light: True
-LightRange: 20.000
-LightBrightness: 1.0000
-LightColor: 1.00000, 1.00000, 1.00000
-LightShadows: False
-LightEnabled: True
 Decal.Top = 85497996093875
 
-Part 21:
-Position: (-67.900, 25.000, 20.500)
+Part 22:
+Position: (-111.900, 25.000, 20.500)
 Rotation: (-90.000, -90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -459,8 +464,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 10723096747
 
-Part 22:
-Position: (-67.900, 25.000, 41.500)
+Part 23:
+Position: (-111.900, 25.000, 41.500)
 Rotation: (-90.000, -90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -476,8 +481,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 12508336242
 
-Part 23:
-Position: (-67.900, 9.000, 20.500)
+Part 24:
+Position: (-111.900, 9.000, 20.500)
 Rotation: (-90.000, -90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -493,8 +498,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 7307744965
 
-Part 24:
-Position: (-67.900, 9.000, 41.500)
+Part 25:
+Position: (-111.900, 9.000, 41.500)
 Rotation: (-90.000, -90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -510,8 +515,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 80023792064300
 
-Part 25:
-Position: (-67.900, 9.500, 62.000)
+Part 26:
+Position: (-111.900, 9.500, 62.000)
 Rotation: (-90.000, -90.000, 0.000)
 Size: (15.000, 0.200, 14.000)
 Shape: Normal
@@ -527,8 +532,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 11600511919
 
-Part 26:
-Position: (55.398, 26.500, -21.500)
+Part 27:
+Position: (108.398, 26.500, -21.500)
 Rotation: (-90.000, 90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -544,8 +549,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 14141785729
 
-Part 27:
-Position: (55.400, 9.500, 17.500)
+Part 28:
+Position: (108.400, 9.500, 17.500)
 Rotation: (-90.000, 90.000, 0.000)
 Size: (12.000, 0.200, 13.000)
 Shape: Normal
@@ -561,8 +566,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 14995503089
 
-Part 28:
-Position: (55.400, 25.500, 53.500)
+Part 29:
+Position: (108.400, 25.500, 53.500)
 Rotation: (-90.000, 90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -578,8 +583,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 138479638668205
 
-Part 29:
-Position: (-67.900, 25.000, 84.500)
+Part 30:
+Position: (-111.900, 25.000, 84.500)
 Rotation: (-90.000, -90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -594,8 +599,8 @@ LightColor: 1.00000, 1.00000, 1.00000
 LightShadows: False
 LightEnabled: True
 
-Part 30:
-Position: (-67.900, 8.500, 84.500)
+Part 31:
+Position: (-111.900, 8.500, 84.500)
 Rotation: (-90.000, -90.000, 0.000)
 Size: (14.000, 0.200, 6.000)
 Shape: Normal
@@ -605,7 +610,7 @@ Material: Plastic
 Transparency: 0.000
 Decal.Top = 131947578380825
 
-Part 31:
+Part 32:
 Position: (22.000, 8.500, 120.400)
 Rotation: (-90.000, 0.000, 0.000)
 Size: (14.000, 0.200, 13.000)
@@ -622,8 +627,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 107847314477681
 
-Part 32:
-Position: (-67.850, 25.000, 84.500)
+Part 33:
+Position: (-111.850, 25.000, 84.500)
 Rotation: (-90.000, -90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -635,8 +640,8 @@ MeshType: Head
 MeshScale: 1.000, 1.000, 1.000
 MeshOffset: 0.000, 0.000, 0.000
 
-Part 33:
-Position: (55.400, 9.500, 53.500)
+Part 34:
+Position: (108.400, 9.500, 53.500)
 Rotation: (-90.000, 90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -644,16 +649,10 @@ ClassName: Part
 Color: 0.067, 0.067, 0.067
 Material: Plastic
 Transparency: 0.000
-Light: True
-LightRange: 20.000
-LightBrightness: 1.0000
-LightColor: 1.00000, 1.00000, 1.00000
-LightShadows: False
-LightEnabled: True
 Decal.Top = 4906403355
 
-Part 34:
-Position: (2.000, 6.500, -0.999)
+Part 35:
+Position: (1.000, 6.500, -0.999)
 Rotation: (-90.000, 180.000, 0.000)
 Size: (17.000, 0.200, 13.000)
 Shape: Normal
@@ -669,8 +668,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 122714132204276
 
-Part 35:
-Position: (-67.900, 25.000, 2.000)
+Part 36:
+Position: (-111.900, 25.000, 2.000)
 Rotation: (-90.000, -90.000, 0.000)
 Size: (15.000, 0.200, 13.000)
 Shape: Normal
@@ -686,13 +685,13 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 4895077852
 
-Part 36:
-Position: (-5.500, 37.500, 45.000)
+Part 37:
+Position: (-1.500, 37.500, 45.000)
 Rotation: (0.000, 0.000, 0.000)
-Size: (125.000, 1.000, 154.000)
+Size: (223.000, 1.000, 154.000)
 Shape: Normal
 ClassName: Part
-Color: 0.333, 0.259, 0.212
+Color: 0.329, 0.259, 0.212
 Material: Plastic
 Transparency: 0.000
 Light: True
@@ -708,8 +707,8 @@ Stud.Right: True
 Stud.Front: True
 Stud.Back: True
 
-Part 37:
-Position: (55.400, 26.500, -2.500)
+Part 38:
+Position: (108.400, 26.500, -2.500)
 Rotation: (-90.000, 90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -725,8 +724,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 9394787762
 
-Part 38:
-Position: (55.400, 26.500, 17.500)
+Part 39:
+Position: (108.400, 26.500, 17.500)
 Rotation: (-90.000, 90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -742,8 +741,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 9795319424
 
-Part 39:
-Position: (55.400, 9.500, 35.500)
+Part 40:
+Position: (108.400, 9.500, 35.500)
 Rotation: (-90.000, 90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -759,8 +758,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 7307851323
 
-Part 40:
-Position: (55.400, 26.500, 35.500)
+Part 41:
+Position: (108.400, 26.500, 35.500)
 Rotation: (-90.000, 90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -776,8 +775,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 5165329166
 
-Part 41:
-Position: (-67.800, 23.730, 82.962)
+Part 42:
+Position: (-111.800, 23.730, 82.962)
 Rotation: (-0.002, 89.995, -45.004)
 Size: (4.000, 1.000, 0.100)
 Shape: Normal
@@ -786,8 +785,8 @@ Color: 0.067, 0.067, 0.067
 Material: Plastic
 Transparency: 0.000
 
-Part 42:
-Position: (-67.800, 21.609, 82.962)
+Part 43:
+Position: (-111.800, 21.609, 82.962)
 Rotation: (0.002, 89.995, -134.996)
 Size: (4.000, 1.000, 0.100)
 Shape: Normal
@@ -796,8 +795,8 @@ Color: 0.067, 0.067, 0.067
 Material: Plastic
 Transparency: 0.000
 
-Part 43:
-Position: (55.400, 8.500, 71.500)
+Part 44:
+Position: (108.400, 8.500, 71.500)
 Rotation: (-90.000, -90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -813,8 +812,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Bottom = 13762187293
 
-Part 44:
-Position: (-67.800, 24.251, 87.726)
+Part 45:
+Position: (-111.800, 24.251, 87.726)
 Rotation: (-0.002, 89.995, 134.996)
 Size: (4.000, 1.000, 0.100)
 Shape: Normal
@@ -823,8 +822,8 @@ Color: 0.067, 0.067, 0.067
 Material: Plastic
 Transparency: 0.000
 
-Part 45:
-Position: (55.400, 25.500, 88.500)
+Part 46:
+Position: (108.400, 25.500, 88.500)
 Rotation: (-90.000, 90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -840,8 +839,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 11490144840
 
-Part 46:
-Position: (-67.800, 23.730, 85.084)
+Part 47:
+Position: (-111.800, 23.730, 85.084)
 Rotation: (0.002, 89.995, -134.996)
 Size: (4.000, 1.000, 0.100)
 Shape: Normal
@@ -850,8 +849,8 @@ Color: 0.067, 0.067, 0.067
 Material: Plastic
 Transparency: 0.000
 
-Part 47:
-Position: (-67.800, 26.205, 85.437)
+Part 48:
+Position: (-111.800, 26.205, 85.437)
 Rotation: (-0.002, 89.995, -45.004)
 Size: (3.000, 1.000, 0.100)
 Shape: Normal
@@ -860,8 +859,8 @@ Color: 0.067, 0.067, 0.067
 Material: Plastic
 Transparency: 0.000
 
-Part 48:
-Position: (-67.800, 28.279, 85.484)
+Part 49:
+Position: (-111.800, 28.279, 85.484)
 Rotation: (0.002, 89.995, 45.004)
 Size: (4.000, 1.000, 0.100)
 Shape: Normal
@@ -870,8 +869,8 @@ Color: 0.067, 0.067, 0.067
 Material: Plastic
 Transparency: 0.000
 
-Part 49:
-Position: (-67.800, 25.851, 82.962)
+Part 50:
+Position: (-111.800, 25.851, 82.962)
 Rotation: (0.002, 89.995, -134.996)
 Size: (4.000, 1.000, 0.100)
 Shape: Normal
@@ -880,8 +879,8 @@ Color: 0.067, 0.067, 0.067
 Material: Plastic
 Transparency: 0.000
 
-Part 50:
-Position: (-67.800, 25.498, 80.487)
+Part 51:
+Position: (-111.800, 25.498, 80.487)
 Rotation: (-0.002, 89.995, 134.996)
 Size: (3.000, 1.000, 0.100)
 Shape: Normal
@@ -890,8 +889,8 @@ Color: 0.067, 0.067, 0.067
 Material: Plastic
 Transparency: 0.000
 
-Part 51:
-Position: (-67.900, 9.000, 105.500)
+Part 52:
+Position: (-111.900, 9.000, 105.500)
 Rotation: (-90.000, -90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -901,8 +900,8 @@ Material: Plastic
 Transparency: 0.000
 Decal.Top = 136806122960039
 
-Part 52:
-Position: (-67.900, 25.000, 105.500)
+Part 53:
+Position: (-111.900, 25.000, 105.500)
 Rotation: (-90.000, -90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -918,8 +917,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 125355422762187
 
-Part 53:
-Position: (-35.000, 24.500, 120.400)
+Part 54:
+Position: (-33.000, 24.500, 120.400)
 Rotation: (-90.000, 0.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -935,8 +934,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 5561921617
 
-Part 54:
-Position: (55.400, 8.500, 89.500)
+Part 55:
+Position: (108.400, 8.500, 89.500)
 Rotation: (-90.000, 90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -952,8 +951,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 112333668108750
 
-Part 55:
-Position: (-54.000, 23.500, 120.400)
+Part 56:
+Position: (-51.000, 23.500, 120.400)
 Rotation: (-90.000, 0.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -961,16 +960,10 @@ ClassName: Part
 Color: 0.067, 0.067, 0.067
 Material: Plastic
 Transparency: 0.000
-Light: True
-LightRange: 20.000
-LightBrightness: 1.0000
-LightColor: 1.00000, 1.00000, 1.00000
-LightShadows: False
-LightEnabled: True
 Decal.Top = 10048874487
 
-Part 56:
-Position: (55.400, 8.500, 105.500)
+Part 57:
+Position: (108.400, 8.500, 105.500)
 Rotation: (-90.000, 90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -986,8 +979,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 6842461300
 
-Part 57:
-Position: (-54.000, 8.500, 120.400)
+Part 58:
+Position: (-51.000, 8.500, 120.400)
 Rotation: (-90.000, 0.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -1003,7 +996,7 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 7997767703
 
-Part 58:
+Part 59:
 Position: (-16.000, 8.500, 120.400)
 Rotation: (-90.000, 0.000, 0.000)
 Size: (14.000, 0.200, 13.000)
@@ -1020,8 +1013,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 6521982064
 
-Part 59:
-Position: (55.400, 25.500, 105.500)
+Part 60:
+Position: (108.400, 25.500, 105.500)
 Rotation: (-90.000, 90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -1037,8 +1030,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 5154936366
 
-Part 60:
-Position: (-35.000, 8.500, 120.400)
+Part 61:
+Position: (-33.000, 8.500, 120.400)
 Rotation: (-90.000, 0.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -1054,7 +1047,7 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 5448230061
 
-Part 61:
+Part 62:
 Position: (22.000, 25.500, 120.400)
 Rotation: (-90.000, 0.000, 0.000)
 Size: (14.000, 0.200, 13.000)
@@ -1071,7 +1064,7 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 122572358834465
 
-Part 62:
+Part 63:
 Position: (-15.000, 25.500, 120.400)
 Rotation: (-90.000, 0.000, 0.000)
 Size: (14.000, 0.200, 13.000)
@@ -1088,7 +1081,7 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 6420989172
 
-Part 63:
+Part 64:
 Position: (1.000, 8.500, 120.400)
 Rotation: (-90.000, 0.000, 0.000)
 Size: (14.000, 0.200, 13.000)
@@ -1105,8 +1098,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 7409389357
 
-Part 64:
-Position: (-67.900, 9.000, -20.000)
+Part 65:
+Position: (-111.900, 9.000, -20.000)
 Rotation: (-90.000, -90.000, 0.000)
 Size: (15.000, 0.200, 13.000)
 Shape: Normal
@@ -1116,31 +1109,21 @@ Material: Plastic
 Transparency: 0.000
 Decal.Top = 104647365814575
 
-Part 65:
-Position: (-5.500, 18.500, -32.000)
-Rotation: (90.000, 0.000, 0.000)
-Size: (125.000, 1.000, 38.000)
-Shape: Normal
-ClassName: Part
-Color: 0.333, 0.259, 0.212
-Material: Plastic
-Transparency: 0.000
-Stud.Top: True
-Stud.Bottom: True
-Stud.Left: True
-Stud.Right: True
-Stud.Front: True
-Stud.Back: True
-
 Part 66:
-Position: (56.000, 18.500, 46.000)
-Rotation: (90.000, -90.000, 0.000)
-Size: (155.000, 1.000, 38.000)
+Position: (-1.500, 18.500, -32.000)
+Rotation: (90.000, 0.000, 0.000)
+Size: (223.000, 1.000, 38.000)
 Shape: Normal
 ClassName: Part
-Color: 0.333, 0.259, 0.212
+Color: 0.329, 0.259, 0.212
 Material: Plastic
 Transparency: 0.000
+Light: True
+LightRange: 100.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
 Stud.Top: True
 Stud.Bottom: True
 Stud.Left: True
@@ -1149,14 +1132,20 @@ Stud.Front: True
 Stud.Back: True
 
 Part 67:
-Position: (-5.500, 18.500, 121.000)
-Rotation: (90.000, 0.000, 0.000)
-Size: (125.000, 1.000, 38.000)
+Position: (109.000, 18.500, 46.000)
+Rotation: (90.000, -90.000, 0.000)
+Size: (155.000, 1.000, 38.000)
 Shape: Normal
 ClassName: Part
-Color: 0.333, 0.259, 0.212
+Color: 0.329, 0.259, 0.212
 Material: Plastic
 Transparency: 0.000
+Light: True
+LightRange: 100.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
 Stud.Top: True
 Stud.Bottom: True
 Stud.Left: True
@@ -1165,12 +1154,12 @@ Stud.Front: True
 Stud.Back: True
 
 Part 68:
-Position: (-68.500, 19.000, 44.000)
-Rotation: (90.000, -90.000, 0.000)
-Size: (155.000, 1.000, 38.000)
+Position: (-2.000, 18.500, 121.000)
+Rotation: (90.000, 0.000, 0.000)
+Size: (224.000, 1.000, 38.000)
 Shape: Normal
 ClassName: Part
-Color: 0.333, 0.259, 0.212
+Color: 0.329, 0.259, 0.212
 Material: Plastic
 Transparency: 0.000
 Stud.Top: True
@@ -1181,7 +1170,29 @@ Stud.Front: True
 Stud.Back: True
 
 Part 69:
-Position: (-67.900, 9.000, 2.000)
+Position: (-112.500, 19.000, 44.000)
+Rotation: (90.000, -90.000, 0.000)
+Size: (155.000, 1.000, 38.000)
+Shape: Normal
+ClassName: Part
+Color: 0.329, 0.259, 0.212
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 100.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Stud.Top: True
+Stud.Bottom: True
+Stud.Left: True
+Stud.Right: True
+Stud.Front: True
+Stud.Back: True
+
+Part 70:
+Position: (-111.900, 9.000, 2.000)
 Rotation: (-90.000, -90.000, 0.000)
 Size: (15.000, 0.200, 13.000)
 Shape: Normal
@@ -1197,8 +1208,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 15783760408
 
-Part 70:
-Position: (-67.900, 25.000, -20.000)
+Part 71:
+Position: (-111.900, 25.000, -20.000)
 Rotation: (-90.000, -90.000, 0.000)
 Size: (15.000, 0.200, 13.000)
 Shape: Normal
@@ -1214,7 +1225,7 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 98092973019668
 
-Part 71:
+Part 72:
 Position: (42.000, 25.500, 120.400)
 Rotation: (-90.000, 0.000, 0.000)
 Size: (14.000, 0.200, 13.000)
@@ -1231,8 +1242,8 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 6738309777
 
-Part 72:
-Position: (55.398, 9.500, -21.500)
+Part 73:
+Position: (108.398, 9.500, -21.500)
 Rotation: (-90.000, 90.000, 0.000)
 Size: (14.000, 0.200, 13.000)
 Shape: Normal
@@ -1248,13 +1259,13 @@ LightShadows: False
 LightEnabled: True
 Decal.Top = 139025963234084
 
-Part 73:
+Part 74:
 Position: (-4.116, 5.064, 0.184)
 Rotation: (-0.020, -178.432, 0.000)
 Size: (1.200, 0.800, 1.400)
 Shape: Normal
 ClassName: Part
-Color: 0.635, 0.631, 0.643
+Color: 0.631, 0.627, 0.639
 Material: Plastic
 Transparency: 0.000
 CanCollide: False
@@ -1264,27 +1275,16 @@ MeshTextureId: 607698990
 MeshScale: 0.660, 0.660, 0.660
 MeshOffset: 0.000, 0.000, 0.000
 
-Part 74:
-Position: (-71.000, 33.000, -1.000)
-Rotation: (0.000, 0.000, 0.000)
-Size: (2.000, 66.000, 94.000)
-Shape: Normal
-ClassName: Part
-Color: 0.635, 0.627, 0.643
-Material: Fabric
-Transparency: 0.000
-Decal.Right = 122714132204276
-
 Part 75:
-Position: (-71.000, 33.000, -1.000)
-Rotation: (0.000, 0.000, 0.000)
-Size: (2.000, 66.000, 94.000)
+Position: (-3.621, 1.017, -0.028)
+Rotation: (0.000, -178.556, 0.000)
+Size: (1.000, 2.000, 1.000)
 Shape: Normal
 ClassName: Part
-Color: 0.635, 0.627, 0.643
-Material: Fabric
+Color: 0.341, 0.125, 0.341
+Material: Plastic
 Transparency: 0.000
-Decal.Right = 122714132204276
+CanCollide: False
 
 Part 76:
 Position: (-3.510, 0.000, 42.799)
@@ -1293,7 +1293,7 @@ Size: (12.000, 1.000, 12.000)
 Shape: Spawn
 ClassName: SpawnLocation
 SpawnPoint: True
-Color: 0.635, 0.631, 0.643
+Color: 0.631, 0.627, 0.639
 Material: Plastic
 Transparency: 0.000
 Decal.Top = 6045248793
@@ -1357,26 +1357,370 @@ Transparency: 0.000
 CanCollide: False
 
 Part 82:
-Position: (-3.621, 1.017, -0.028)
-Rotation: (0.000, -178.556, 0.000)
-Size: (1.000, 2.000, 1.000)
+Position: (58.000, 10.500, -31.399)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (14.000, 0.200, 13.000)
 Shape: Normal
 ClassName: Part
-Color: 0.345, 0.129, 0.345
+Color: 0.067, 0.067, 0.067
 Material: Plastic
 Transparency: 0.000
-CanCollide: False
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 10115341338
 
 Part 83:
-Position: (-4.621, 1.012, -0.003)
-Rotation: (0.000, -178.556, 0.000)
-Size: (1.000, 2.000, 1.000)
+Position: (58.000, 26.500, -31.399)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (14.000, 0.200, 13.000)
 Shape: Normal
 ClassName: Part
-Color: 0.345, 0.129, 0.345
+Color: 0.067, 0.067, 0.067
 Material: Plastic
 Transparency: 0.000
-CanCollide: False
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 90751491079279
+
+Part 84:
+Position: (78.000, 26.500, -31.399)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Decal.Top = 97753177458768
+
+Part 85:
+Position: (78.000, 10.500, -31.399)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 15541724264
+
+Part 86:
+Position: (97.000, 10.500, -31.399)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Decal.Top = 102692900360014
+
+Part 87:
+Position: (97.000, 26.500, -31.399)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Decal.Top = 131664760753903
+
+Part 88:
+Position: (60.000, 8.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Decal.Top = 120450762955124
+
+Part 89:
+Position: (79.000, 8.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 17536349606
+
+Part 90:
+Position: (98.000, 8.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 78663617905870
+
+Part 91:
+Position: (98.000, 26.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 14089491189
+
+Part 92:
+Position: (79.000, 26.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 10648918828
+
+Part 93:
+Position: (60.000, 26.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 11206262068
+
+Part 94:
+Position: (-69.500, 9.500, -31.400)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (13.000, 0.200, 11.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 10544464380
+
+Part 95:
+Position: (-69.500, 24.500, -31.400)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (13.000, 0.200, 9.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Decal.Top = 12220943382
+
+Part 96:
+Position: (-85.500, 24.500, -31.400)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (13.000, 0.200, 9.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Decal.Top = 6924274285
+
+Part 97:
+Position: (-85.500, 9.500, -31.400)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (13.000, 0.200, 11.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 18799338376
+
+Part 98:
+Position: (-101.500, 9.500, -31.400)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (13.000, 0.200, 11.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 10992902414
+
+Part 99:
+Position: (-101.500, 24.500, -31.400)
+Rotation: (-90.000, 180.000, 0.000)
+Size: (13.000, 0.200, 11.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Decal.Top = 7447900851
+
+Part 100:
+Position: (-69.000, 8.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 11729585225
+
+Part 101:
+Position: (-69.000, 23.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 12657626227
+
+Part 102:
+Position: (-86.000, 8.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 7444196284
+
+Part 103:
+Position: (-103.000, 8.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 13069649893
+
+Part 104:
+Position: (-86.000, 23.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 17858351415
+
+Part 105:
+Position: (-103.000, 23.500, 120.400)
+Rotation: (-90.000, 0.000, 0.000)
+Size: (14.000, 0.200, 13.000)
+Shape: Normal
+ClassName: Part
+Color: 0.067, 0.067, 0.067
+Material: Plastic
+Transparency: 0.000
+Light: True
+LightRange: 20.000
+LightBrightness: 1.0000
+LightColor: 1.00000, 1.00000, 1.00000
+LightShadows: False
+LightEnabled: True
+Decal.Top = 11920018162
 ]]
 ---------------------------------------------------------
 
